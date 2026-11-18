@@ -6,12 +6,12 @@ use std::sync::Arc;
 use http::HeaderMap;
 
 use super::bucket::{self, window_ms};
-pub use crate::route::RouteLimit;
 use super::client_address::{client_key, forwarded_for};
 use super::js;
 use super::options::{BucketLimit, OptionsError, RateLimitOptions, ValidatedOptions};
 use super::rejection::TooManyRequests;
 use super::store::{RedisConfigError, RedisOptions, Store, StoreError};
+pub use crate::route::RouteLimit;
 
 /// Identifies a Route for its Route Buckets: the Upstream Service, the request method and
 /// the Route pattern (`routerPath`).
@@ -48,9 +48,7 @@ fn effective_status(limit: &RouteLimit) -> Option<u16> {
 /// [`RateLimiter::count_after_response`] once the response completes (the reference's
 /// `checkRouterHasCustomLimit`).
 pub fn has_status_limits(limits: &[RouteLimit]) -> bool {
-    limits
-        .iter()
-        .any(|limit| effective_status(limit).is_some())
+    limits.iter().any(|limit| effective_status(limit).is_some())
 }
 
 /// What the Identity resolver returned for a request: the key its Custom and Route Buckets

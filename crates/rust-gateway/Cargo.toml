@@ -8,15 +8,27 @@ publish.workspace = true
 
 [dependencies]
 arc-swap = "1.9.5"
+async-trait = "0.1.89"
+axum = { version = "0.8.9", default-features = false, features = ["http1", "json", "matched-path", "original-uri", "query", "tokio"] }
+bytes = "1.12.2"
 http = "1.5.0"
+http-body = "1.1.0"
+http-body-util = "0.1.5"
+httpdate = "1.0.3"
+hyper = { version = "1.12.0", features = ["client", "http1", "server"] }
+hyper-util = { version = "0.1.21", features = ["service", "tokio"] }
 redis = { version = "1.8.2", default-features = false, features = ["aio", "tokio-comp", "script"] }
 regex = "1.13.2"
 reqwest = { version = "0.13.5", default-features = false, features = ["rustls", "system-proxy"] }
 rustls = { version = "0.23.46", default-features = false, features = ["ring", "std", "tls12", "logging"] }
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = { version = "1.0.154", features = ["preserve_order"] }
+sha1_smol = "1.0.1"
+socket2 = { version = "0.6.5", features = ["all"] }
 thiserror = "2.0.21"
-tokio = { version = "1.54.1", features = ["macros", "net", "rt", "sync", "time"] }
+tokio = { version = "1.54.1", features = ["io-util", "macros", "net", "rt", "sync", "time"] }
+tower = { version = "0.5.3", default-features = false, features = ["util"] }
+tower-service = "0.3.3"
 tokio-rustls = { version = "0.26.6", default-features = false, features = ["ring", "tls12", "logging"] }
 tracing = "0.1.44"
 url = "2.5.8"

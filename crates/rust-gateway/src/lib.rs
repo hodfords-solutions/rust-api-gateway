@@ -7,11 +7,19 @@
 //! behaviour (the External Contract) must match the Reference Gateway; see
 //! `docs/parity/` for the Parity Checklist and `CONTEXT.md` for vocabulary.
 //!
-//! This crate is pre-parity: no gateway behaviour is implemented yet.
+//! Start with [`Gateway::builder`]: give it the options ([`GatewayOptions`]) and the
+//! handlers ([`handler`]), build it inside a Tokio runtime, then either serve it with
+//! [`Gateway::serve`] or mount [`Gateway::router`] in an axum application.
 
 pub mod error;
+pub mod gateway;
+pub mod handler;
 pub mod openapi;
+mod proxy;
 pub mod rate_limit;
 pub mod request;
 pub mod route;
+pub mod server;
 pub mod upstream;
+
+pub use gateway::{Gateway, GatewayBuilder, GatewayOptions};

@@ -41,6 +41,16 @@ pub enum GatewayError {
         /// The first path segment `decodeURIComponent` rejects, as received.
         segment: String,
     },
+    /// No route of the application or the gateway claims the request: NestJS's 404
+    /// `{"message":"Cannot <METHOD> <path>","error":"Not Found","statusCode":404}`. The
+    /// proxy claims every path, so only an asterisk-form target (`*`) gets it (REQ-01).
+    #[error("no route claims {method} {path}")]
+    NotFound {
+        /// The request method.
+        method: String,
+        /// The request target as received.
+        path: String,
+    },
     /// A middleware disallowed the request (REQ-18): 403.
     #[error("a middleware disallowed the request")]
     Forbidden,
@@ -105,6 +115,7 @@ impl GatewayError {
     pub fn status(&self) -> StatusCode {
         match self {
             GatewayError::MalformedPath { .. } => StatusCode::BAD_REQUEST,
+            GatewayError::NotFound { .. } => StatusCode::NOT_FOUND,
             GatewayError::Forbidden => StatusCode::FORBIDDEN,
             GatewayError::MethodNotAllowed | GatewayError::UnsupportedMethod { .. } => {
                 StatusCode::METHOD_NOT_ALLOWED
@@ -134,6 +145,10 @@ impl GatewayError {
                 js_json(&Value::String(format!(
                     "Failed to decode param '{segment}'"
                 )))
+            ),
+            GatewayError::NotFound { method, path } => format!(
+                r#"{{"message":{},"error":"Not Found","statusCode":404}}"#,
+                js_json(&Value::String(format!("Cannot {method} {path}")))
             ),
             GatewayError::Forbidden => r#"{"message":"Forbidden","statusCode":403}"#.to_string(),
             GatewayError::MethodNotAllowed | GatewayError::UnsupportedMethod { .. } => {
@@ -376,6 +391,22 @@ mod tests {
                 429,
                 utf8,
                 r#"{"message":"error.too_many_requests_with_custom_ttl","args":{"ttl":"the next one minute"}}"#.into()
+            )
+        );
+    }
+
+    // pipeline::req_02_url_normalisation (the asterisk-form target)
+    #[test]
+    fn not_found_names_the_method_and_target() {
+        assert_eq!(
+            view(&GatewayError::NotFound {
+                method: "GET".into(),
+                path: "*".into()
+            }),
+            (
+                404,
+                JSON_UTF8.to_string(),
+                r#"{"message":"Cannot GET *","error":"Not Found","statusCode":404}"#.into()
             )
         );
     }
