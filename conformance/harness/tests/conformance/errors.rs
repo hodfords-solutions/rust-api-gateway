@@ -4,7 +4,7 @@ use std::time::{Duration, Instant};
 
 use conformance::client::{self, Request};
 use conformance::redis::RedisLink;
-use conformance::runner::{Observations, run};
+use conformance::runner::{Observations, run, run_reference_only};
 use serde_json::json;
 
 use crate::common::{assert_table, error_view, users_gateway};
@@ -105,10 +105,12 @@ async fn req_24_unexpected_failures() {
 
 /// REQ-24: Redis becomes unreachable after start. The reference (ioredis 6 defaults) queues
 /// the command, retries the connection 20 times with exponential backoff capped at 5 s, then
-/// fails the request with 500, roughly 70 s later.
+/// fails the request with 500, roughly 70 s later. Deviation D10 answers the same 500 within
+/// 2 seconds, so this checks the reference only; the Rust behaviour is tested in
+/// `crates/rust-gateway/tests/gateway_redis_unreachable.rs`.
 #[tokio::test]
 async fn req_24_redis_unreachable() {
-    run(
+    run_reference_only(
         "req_24_redis_unreachable",
         &["REQ-24"],
         |target| async move {

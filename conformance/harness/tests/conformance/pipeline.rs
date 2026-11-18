@@ -368,7 +368,51 @@ async fn req_03_excluded_headers() {
                     .collect();
                 observed.push((label.to_string(), identity.join(" | ")));
             }
-            // A WebSocket upgrade.
+            assert_table(
+                "REQ-03",
+                &observed,
+                &[
+                    ("routed", "x-keep: yes"),
+                    (
+                        "routed, middleware sets auth-user-id",
+                        "x-keep: yes | auth-user-id: u1",
+                    ),
+                    (
+                        "routed, middleware adds authUserId and permissionInAnyGuard",
+                        "x-keep: yes | auth-user-id: u2 | permission-in-any-guard: g",
+                    ),
+                    ("static", "x-keep: yes"),
+                    ("bypass", "x-keep: yes"),
+                ],
+            );
+            let mut obs = Observations::new();
+            obs.record("identity headers upstream", &observed);
+            Ok(obs)
+        },
+    )
+    .await;
+}
+
+/// REQ-03 for WebSocket upgrades (with WS-04): the `excludeHeaders` are removed from an
+/// upgrade request too, and the upgrade keeps the Service Prefix upstream.
+#[tokio::test]
+async fn req_03_excluded_headers_on_upgrade() {
+    run(
+        "req_03_excluded_headers_on_upgrade",
+        &["REQ-03", "WS-04"],
+        |target| async move {
+            let (mock, gw) = users_gateway(&target, |mut c| {
+                c.exclude_headers = vec!["Auth-User-Id".into(), "permission-in-any-guard".into()];
+                c
+            })
+            .await?;
+            let spoof = |r: Request| {
+                r.header("AUTH-USER-ID", "spoofed")
+                    .header("auth-user-id", "spoofed-again")
+                    .header("Permission-In-Any-Guard", "admin")
+                    .header("x-keep", "yes")
+            };
+            let mut observed = Vec::new();
             mock.set_default(conformance::mock::Behaviour::WebSocketEcho);
             mock.clear_requests();
             let upgrade =
@@ -387,20 +431,9 @@ async fn req_03_excluded_headers() {
                 .collect();
             observed.push(("websocket upgrade".into(), identity.join(" | ")));
             assert_table(
-                "REQ-03",
+                "REQ-03 upgrade",
                 &observed,
                 &[
-                    ("routed", "x-keep: yes"),
-                    (
-                        "routed, middleware sets auth-user-id",
-                        "x-keep: yes | auth-user-id: u1",
-                    ),
-                    (
-                        "routed, middleware adds authUserId and permissionInAnyGuard",
-                        "x-keep: yes | auth-user-id: u2 | permission-in-any-guard: g",
-                    ),
-                    ("static", "x-keep: yes"),
-                    ("bypass", "x-keep: yes"),
                     ("websocket upgrade target", "/svc/socket"),
                     ("websocket upgrade", "x-keep: yes"),
                 ],

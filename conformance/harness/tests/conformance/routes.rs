@@ -2,7 +2,7 @@
 
 use conformance::client::Request;
 use conformance::mock::MockUpstream;
-use conformance::runner::{Gateway, Observations, run};
+use conformance::runner::{Gateway, Observations, TargetKind, run};
 
 use crate::common::{assert_table, error_view, matched_route, users_gateway};
 
@@ -62,7 +62,6 @@ async fn oas_19_route_matching() {
             ("DELETE", "/svc/v1/users/42"),
             ("HEAD", "/svc/v1/users/42"),
             ("POST", "/svc/v1/users/42"),
-            ("get", "/svc/v1/users"),
             ("GET", "/SVC/v1/users"),
         ];
         let observed = match_table(&mock, &gw, &cases).await?;
@@ -89,7 +88,6 @@ async fn oas_19_route_matching() {
                 ("DELETE /svc/v1/users/42", "UsersController_deleteUser -> /v1/users/42/"),
                 ("HEAD /svc/v1/users/42", "UsersController_headUser -> /v1/users/42/"),
                 ("POST /svc/v1/users/42", "HTTP 405"),
-                ("get /svc/v1/users", "HTTP 400"),
                 ("GET /SVC/v1/users", "HTTP 503"),
             ],
         );
@@ -100,6 +98,13 @@ async fn oas_19_route_matching() {
             malformed.text(),
             r#"{"message":"Failed to decode param '%zz'","error":"Bad Request","statusCode":400}"#
         );
+        // A lower-case method is rejected by Node's parser with 400 and never reaches
+        // matching. The Rust target answers 405 under Deviation D4 (REQ-15), tested
+        // Rust-only, so this is checked against the reference alone.
+        if target.kind == TargetKind::Reference {
+            let lower = gw.send(&Request::new("get", "/svc/v1/users")).await?;
+            assert_eq!(lower.status, 400, "lower-case method");
+        }
         let mut obs = Observations::new();
         obs.record("matches", &observed);
         obs.record("malformed percent-encoding", error_view(&malformed));

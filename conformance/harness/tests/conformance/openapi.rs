@@ -212,7 +212,15 @@ async fn oas_03_failed_refresh_keeps_the_document() {
             }
             let gw = target.start(config).await?;
             let prefixes: Vec<&str> = failures.iter().map(|(p, _)| *p).collect();
-            assert_eq!(gw.loaded_services().await?, prefixes);
+            // `loaded_services` lists services in first-load order. The four loads run
+            // concurrently, so that order is not fixed; compare them sorted.
+            let sorted = |mut list: Vec<String>| {
+                list.sort();
+                list
+            };
+            let mut expected: Vec<String> = prefixes.iter().map(|p| p.to_string()).collect();
+            expected.sort();
+            assert_eq!(sorted(gw.loaded_services().await?), expected);
 
             let mut fetches = Vec::new();
             for (mock, (_, failure)) in mocks.iter().zip(failures.iter()) {
@@ -241,8 +249,8 @@ async fn oas_03_failed_refresh_keeps_the_document() {
                     ("GET /invalid/v1/users", "UsersController_listUsers"),
                 ],
             );
-            let loaded = gw.loaded_services().await?;
-            assert_eq!(loaded, prefixes);
+            let loaded = sorted(gw.loaded_services().await?);
+            assert_eq!(loaded, expected);
             let mut obs = Observations::new();
             obs.record("requests after a failed refresh", &observed);
             obs.record("loaded services", &loaded);

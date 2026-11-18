@@ -624,9 +624,20 @@ async fn rl_18_bucket_order() {
         assert_eq!(statuses(&responses), [200, 200, 429, 429]);
         assert_eq!(responses[2].text(), ROUTE_ONE_MINUTE);
         assert_eq!(responses[3].text(), TOO_MANY);
+        // A forwarded response is the mock's echo, which names its port: record only the
+        // status of those.
         obs.record(
             "Route full, then Custom full",
-            responses.iter().map(error_view).collect::<Vec<_>>(),
+            responses
+                .iter()
+                .map(|r| {
+                    if r.status == 200 {
+                        serde_json::json!({ "status": r.status })
+                    } else {
+                        error_view(r)
+                    }
+                })
+                .collect::<Vec<_>>(),
         );
 
         // Anonymous IP before Custom: the anonymous request rejected by the Anonymous IP
