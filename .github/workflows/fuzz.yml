@@ -1,0 +1,82 @@
+name: Fuzz
+
+# cargo-fuzz (libFuzzer) targets in fuzz/; see docs/security/fuzzing.md.
+# Pull requests that touch the crate's sources or the targets get a short smoke run per
+# target; the nightly schedule (and a manual run) fuzzes longer.
+
+on:
+  pull_request:
+    paths:
+      - "crates/rust-gateway/src/**"
+      - "fuzz/**"
+      - ".github/workflows/fuzz.yml"
+  schedule:
+    - cron: "17 2 * * *"
+  workflow_dispatch:
+    inputs:
+      seconds:
+        description: Seconds per target
+        default: "600"
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+  # Open findings (docs/security/fuzzing.md) the targets step around, so that a run reports
+  # new problems instead of a documented one. Remove an ID when its finding is fixed.
+  FUZZ_SKIP_OPEN_FINDINGS: FUZZ-01,FUZZ-02,FUZZ-03,FUZZ-04,FUZZ-05
+
+jobs:
+  fuzz:
+    name: Fuzz ${{ matrix.target }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        target:
+          - client_address
+          - documents_json
+          - inbound_stream
+          - mcp_call
+          - mcp_tools
+          - openapi_document
+          - request_headers
+          - request_query
+          - request_url
+          - route_pattern
+          - route_round_trip
+          - upgrade_head
+          - websocket_response
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@nightly
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: fuzz
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-fuzz
+      - name: Choose the run length
+        id: length
+        run: |
+          case "${{ github.event_name }}" in
+            pull_request) echo "seconds=45" >> "$GITHUB_OUTPUT" ;;
+            workflow_dispatch) echo "seconds=${{ inputs.seconds }}" >> "$GITHUB_OUTPUT" ;;
+            *) echo "seconds=600" >> "$GITHUB_OUTPUT" ;;
+          esac
+      # The toolchain file pins stable for the workspace; the script runs `cargo +nightly fuzz`.
+      - name: Fuzz
+        run: fuzz/scripts/run-all.sh "${{ steps.length.outputs.seconds }}" "${{ matrix.target }}"
+      - name: Show the log
+        if: always()
+        run: tail -n 60 "fuzz/logs/${{ matrix.target }}.log" || true
+      - name: Upload the failing input
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: fuzz-${{ matrix.target }}
+          path: |
+            fuzz/artifacts/${{ matrix.target }}/
+            fuzz/logs/${{ matrix.target }}.log
+          if-no-files-found: ignore
