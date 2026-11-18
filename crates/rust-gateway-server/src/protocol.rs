@@ -268,7 +268,7 @@ mod tests {
     fn ascii_json_escapes_like_the_reference() {
         assert_eq!(
             ascii_json(&json!({"a": "é\u{1F600}", "b": 1.0})),
-            r#"{"a":"é😀","b":1}"#
+            "{\"a\":\"\\u00e9\\ud83d\\ude00\",\"b\":1}"
         );
     }
 

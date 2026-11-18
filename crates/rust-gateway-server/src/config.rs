@@ -110,6 +110,11 @@ fn env(name: &str) -> Option<String> {
     std::env::var(name).ok().filter(|v| !v.is_empty())
 }
 
+/// Reads an environment variable through `lookup`, treating an empty value as unset.
+fn env_in(lookup: &dyn Fn(&str) -> Option<String>, name: &str) -> Option<String> {
+    lookup(name).filter(|v| !v.is_empty())
+}
+
 /// JavaScript's `Number(text)` for the integers used here.
 fn number(name: &str, text: &str) -> Result<f64, ConfigError> {
     let trimmed = text.trim();
@@ -282,6 +287,14 @@ impl ConformanceConfig {
 /// `REDIS_TLS_REJECT_UNAUTHORIZED` (`false` disables verification), and `API_SERVICES`: a
 /// JSON list of Upstream Services replacing the sample's `user-service` (EX-02).
 pub fn sample_settings() -> Result<Settings, ConfigError> {
+    sample_settings_from(&|name| std::env::var(name).ok())
+}
+
+/// [`sample_settings`] with the environment read through `lookup`.
+pub fn sample_settings_from(
+    lookup: &dyn Fn(&str) -> Option<String>,
+) -> Result<Settings, ConfigError> {
+    let env = |name: &str| env_in(lookup, name);
     let app_port = env("APP_PORT")
         .map(|v| number("APP_PORT", &v))
         .transpose()?
@@ -313,14 +326,14 @@ pub fn sample_settings() -> Result<Settings, ConfigError> {
     redis.db = Some(number("REDIS_DB", &env("REDIS_DB").unwrap_or_else(|| "0".into()))? as i64);
     redis.username = env("REDIS_USERNAME");
     redis.password = env("REDIS_PASSWORD");
-    redis.tls = if std::env::var("REDIS_TLS").as_deref() == Ok("true") {
+    redis.tls = if lookup("REDIS_TLS").as_deref() == Some("true") {
         let file = |name: &str| env(name).map(Value::String);
         redis_tls(Some(&json!({
             "caFile": file("REDIS_TLS_CA_FILE"),
             "certFile": file("REDIS_TLS_CERT_FILE"),
             "keyFile": file("REDIS_TLS_KEY_FILE"),
             "servername": file("REDIS_TLS_SERVERNAME"),
-            "rejectUnauthorized": std::env::var("REDIS_TLS_REJECT_UNAUTHORIZED").as_deref() != Ok("false"),
+            "rejectUnauthorized": lookup("REDIS_TLS_REJECT_UNAUTHORIZED").as_deref() != Some("false"),
         })))?
     } else {
         RedisTls::Disabled
@@ -395,6 +408,108 @@ mod tests {
         assert_eq!(options.pool.connections, Some(100));
         assert_eq!(options.bypass_route_prefixes, ["svc/public"]);
         assert!(options.mcp.unwrap().enabled);
+    }
+
+    fn lookup(pairs: &'static [(&'static str, &'static str)]) -> impl Fn(&str) -> Option<String> {
+        move |name| {
+            pairs
+                .iter()
+                .find(|(n, _)| *n == name)
+                .map(|(_, v)| v.to_string())
+        }
+    }
+
+    // EX-01, EX-02, EX-04: the reference sample's defaults.
+    #[test]
+    fn ex_01_ex_04_sample_defaults() {
+        let settings = sample_settings_from(&lookup(&[])).unwrap();
+        assert_eq!(settings.port, 3000);
+        let options = settings.options;
+        assert_eq!(
+            options.api_services,
+            [UpstreamService::new(
+                "user-service",
+                "http://localhost:4020/documents-json",
+                "http://localhost:4020"
+            )
+            .with_direct_prefixes(["oauth", "oidc"])]
+        );
+        assert_eq!(
+            (
+                options.redis.host.as_str(),
+                options.redis.port,
+                options.redis.db
+            ),
+            ("localhost", 6379, Some(0))
+        );
+        assert_eq!(options.redis.tls, RedisTls::Disabled);
+        assert_eq!(
+            options.exclude_headers,
+            ["auth-user-id", "permission-in-any-guard"]
+        );
+        assert_eq!(options.open_api_security_keys, ["auth-user-id"]);
+        assert_eq!(options.open_api_security_api_keys, ["x-api-key"]);
+        assert_eq!(options.rate_limit.global_ip, BucketLimit::new(60, 60.0));
+        assert_eq!(options.rate_limit.custom, BucketLimit::new(60, 60.0));
+        assert!(options.rate_limit.enabled);
+        assert_eq!(options.rate_limit.trust_proxy, trust_proxy(None).unwrap());
+        assert_eq!(options.pool.connections, Some(100));
+        assert!(options.documents.enabled);
+        assert!(options.mcp.unwrap().enabled);
+    }
+
+    // EX-01, EX-02: environment overrides.
+    #[test]
+    fn ex_01_ex_02_sample_environment() {
+        let settings = sample_settings_from(&lookup(&[
+            ("APP_PORT", "4100"),
+            ("REDIS_HOST", "redis.internal"),
+            ("REDIS_PORT", "6380"),
+            ("REDIS_DB", "3"),
+            ("REDIS_USERNAME", "gw"),
+            ("REDIS_PASSWORD", "secret"),
+            ("REDIS_TLS", "true"),
+            ("REDIS_TLS_SERVERNAME", "redis.example"),
+            ("REDIS_TLS_REJECT_UNAUTHORIZED", "false"),
+            (
+                "API_SERVICES",
+                r#"[{"prefix":"a","docUrl":"http://a/doc","host":"http://a"}]"#,
+            ),
+        ]))
+        .unwrap();
+        assert_eq!(settings.port, 4100);
+        let options = settings.options;
+        assert_eq!(
+            options.api_services,
+            [UpstreamService::new("a", "http://a/doc", "http://a")]
+        );
+        assert_eq!(
+            (
+                options.redis.host.as_str(),
+                options.redis.port,
+                options.redis.db
+            ),
+            ("redis.internal", 6380, Some(3))
+        );
+        assert_eq!(options.redis.username.as_deref(), Some("gw"));
+        assert_eq!(options.redis.password.as_deref(), Some("secret"));
+        assert_eq!(
+            options.redis.tls,
+            RedisTls::Custom(RedisTlsOptions {
+                server_name: Some("redis.example".into()),
+                reject_unauthorized: false,
+                ..RedisTlsOptions::default()
+            })
+        );
+        assert_eq!(
+            sample_settings_from(&lookup(&[("REDIS_TLS", "1")]))
+                .unwrap()
+                .options
+                .redis
+                .tls,
+            RedisTls::Disabled,
+            "only \"true\" enables TLS"
+        );
     }
 
     #[test]
