@@ -4,8 +4,8 @@ How these numbers are produced, and how to read them: [README.md](README.md).
 
 **Assumption.** Both gateways run the benchmark middleware set EX-05: JWT bearer
 verification in the gateway, `auth-user-id` set from the token's subject, and the Identity
-resolved as the user id when authenticated and the client address otherwise. This is an
-assumption about what production middleware does; nobody has confirmed it. Numbers for other
+resolved as the user id when authenticated and the client address otherwise. The user
+confirmed on 2026-11-18 that this is representative of their production middleware. Numbers for other
 middleware may differ, in particular for the Reference Gateway, whose middleware runs as
 JavaScript.
 
@@ -41,7 +41,7 @@ Run `20261118T091045Z-full`, started 2026-11-18T09:55:21+00:00, finished 2026-11
 - **Load average (1, 5, 15 min):** host [15.97, 17.86, 14.43] before, [5.32, 8.95, 9.32] after; Docker VM ['1.31', '0.54', '0.45'] before, ['3.65', '3.95', '3.75'] after  **(busy machine: numbers are not comparable to a quiet run)**
 - **CPU sets:** gateway 0 (1 CPU), 0-3 (4 CPU), memory 1g, the same for both gateways; upstream 4-5; Redis 6; oha 7-9. The gateway not being measured is paused.
 - **Load:** 3 runs of 20 s per gateway per point, after 5 s of warm-up, alternating between the gateways (ABBA); keep-alive connections: 64, 256.
-- **Middleware (EX-05):** JWT verification (HS256) in the gateway, `auth-user-id` from the token's subject, Identity = user id or client address. *This is an assumption about production middleware that has not been confirmed.*
+- **Middleware (EX-05):** JWT verification (HS256) in the gateway, `auth-user-id` from the token's subject, Identity = user id or client address. Confirmed by the user on 2026-11-18 as representative of their production middleware.
 
 Columns: req/s, p50 and p99 are medians over the runs (each run's req/s and p99 follow); *checked* = responses that all had the expected status and matched the upstream's count; peak RSS = `VmHWM` of the gateway process over the whole point (warm-up and all runs); CPU = `docker stats` halfway through each run, gateway · upstream · Redis.
 
@@ -154,7 +154,7 @@ Run `20261118T083254Z-smoke`, started 2026-11-18T08:33:00+00:00, finished 2026-1
 - **Load average (1, 5, 15 min):** host [12.75, 11.37, 9.27] before, [6.97, 7.38, 8.04] after; Docker VM ['2.13', '2.48', '2.40'] before, ['4.26', '3.80', '3.09'] after  **(busy machine: numbers are not comparable to a quiet run)**
 - **CPU sets:** gateway 0 (1 CPU), 0-3 (4 CPU), memory 1g, the same for both gateways; upstream 4-5; Redis 6; oha 7-9. The gateway not being measured is paused.
 - **Load:** 2 runs of 3 s per gateway per point, after 1 s of warm-up, alternating between the gateways (ABBA); keep-alive connections: 64, 256.
-- **Middleware (EX-05):** JWT verification (HS256) in the gateway, `auth-user-id` from the token's subject, Identity = user id or client address. *This is an assumption about production middleware that has not been confirmed.*
+- **Middleware (EX-05):** JWT verification (HS256) in the gateway, `auth-user-id` from the token's subject, Identity = user id or client address. Confirmed by the user on 2026-11-18 as representative of their production middleware.
 
 Columns: req/s, p50 and p99 are medians over the runs (each run's req/s and p99 follow); *checked* = responses that all had the expected status and matched the upstream's count; peak RSS = `VmHWM` of the gateway process over the whole point (warm-up and all runs); CPU = `docker stats` halfway through each run, gateway · upstream · Redis.
 
