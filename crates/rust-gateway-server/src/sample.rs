@@ -99,3 +99,87 @@ pub fn routes() -> Router {
             get(|OriginalUri(uri): OriginalUri| async move { format!("Oauth: {uri}") }),
         )
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use axum::body::Body;
+    use http::{HeaderMap, Method, Request, Uri};
+    use tower::ServiceExt as _;
+
+    fn request(url: &str) -> GatewayRequest {
+        GatewayRequest::new(
+            Method::GET,
+            Uri::from_static("/"),
+            url,
+            HeaderMap::new(),
+            None,
+        )
+    }
+
+    // EX-03: the sample's handlers.
+    #[tokio::test]
+    async fn ex_03_sample_handlers() {
+        for (url, expected) in [
+            ("/svc/images/a.png", true),
+            ("/svc/statics/app.js", true),
+            ("/svc/v1/users", false),
+        ] {
+            assert_eq!(
+                SampleStaticRequest.is_static(&request(url)).await.unwrap(),
+                expected,
+                "{url}"
+            );
+        }
+        let mut proxy_request = ProxyRequest::new();
+        let mut req = request("/svc/v1/users");
+        let route = rust_gateway::route::Route {
+            method: rust_gateway::route::RouteMethod::Get,
+            operation_id: None,
+            description: String::new(),
+            path: "/v1/users".into(),
+            router_path: "/v1/users".into(),
+            pattern: rust_gateway::route::pattern::PathPattern::compile("/v1/users").unwrap(),
+            rate_limits: Vec::new(),
+            is_bearer_auth: false,
+            is_api_key_auth: false,
+            extra: serde_json::Map::new(),
+        };
+        assert!(
+            SampleAuthentication
+                .handle(&route, &mut req, &mut proxy_request)
+                .await
+                .unwrap()
+        );
+        assert_eq!(
+            proxy_request.kebab_headers(),
+            [("auth-user-id".to_string(), "123".to_string())]
+        );
+        let mut ws_headers = ProxyRequest::new();
+        assert!(
+            SampleWsAuthentication
+                .handle(&mut request("/svc/socket"), &mut ws_headers)
+                .await
+                .unwrap()
+        );
+        assert_eq!(ws_headers.kebab_headers(), proxy_request.kebab_headers());
+        assert!(matches!(
+            SampleMcpAuthentication
+                .authenticate(&mut request("/mcp"))
+                .await
+                .unwrap(),
+            McpAuthDecision::Allow
+        ));
+    }
+
+    // EX-06: the sample's own routes.
+    #[tokio::test]
+    async fn ex_06_sample_routes() {
+        let response = routes()
+            .oneshot(Request::get("/oauth/metadata?x=1").body(Body::empty()).unwrap())
+            .await
+            .unwrap();
+        let body = axum::body::to_bytes(response.into_body(), 1024).await.unwrap();
+        assert_eq!(&body[..], b"Oauth: /oauth/metadata?x=1");
+    }
+}

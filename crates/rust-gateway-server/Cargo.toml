@@ -16,5 +16,8 @@ tokio = { version = "1.54.1", features = ["macros", "net", "rt-multi-thread", "s
 tracing = "0.1.44"
 tracing-subscriber = { version = "0.3.23", default-features = false, features = ["ansi", "env-filter", "fmt"] }
 
+[dev-dependencies]
+tower = { version = "0.5.3", default-features = false, features = ["util"] }
+
 [lints]
 workspace = true
