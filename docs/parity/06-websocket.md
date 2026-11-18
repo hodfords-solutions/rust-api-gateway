@@ -18,14 +18,14 @@ Upgrade requests take a separate, shorter path than HTTP requests. Several behav
 | ID | Behaviour | Reference | Test | Status |
 |---|---|---|---|---|
 | WS-07 | The upstream path is the full normalised URL including the Service Prefix and query. The prefix is not removed and no trailing slash is added. | `proxy/proxy-socket.ts:60` | C, U | todo |
-| WS-08 | All client headers are forwarded, including `connection`, `upgrade` and `sec-websocket-*`; middleware headers replace same-named ones. No `x-forwarded-for` is added and `Host` is unchanged. | `proxy/proxy-socket.ts:56-59` | C, U | todo |
+| WS-08 | All client headers are forwarded, including `connection`, `upgrade` and `sec-websocket-*`, as Node holds them: names lower-cased, a repeated header joined into one line with `, ` (`; ` for `cookie`), a header Node keeps once (such as `user-agent`) with its first value only, `set-cookie` once per value. Middleware headers replace same-named ones in place or are appended. No `x-forwarded-for` is added and `Host` is unchanged. | `proxy/proxy-socket.ts:56-59` | C, U | todo |
 | WS-09 | The upstream connection is plain HTTP even when the service host is `https`, and is a new connection for every upgrade, never one from the pool. | `proxy/proxy-socket.ts:48-69,76` | C, U | todo |
 
 ## Tunnel
 
 | ID | Behaviour | Reference | Test | Status |
 |---|---|---|---|---|
-| WS-10 | When the upstream accepts, the client receives `HTTP/1.1 101 Switching Protocols` followed by the upstream's response headers. A header the upstream repeated is written as one line with the values joined by `, ` (Node joins them before the gateway sees them); only `set-cookie` is written once per value. Observed by the HTTP stack spike's checks against the reference. | `proxy/proxy-socket.ts:25-46,119` | C, U | todo |
+| WS-10 | When the upstream accepts, the client receives `HTTP/1.1 101 Switching Protocols` (whatever reason the upstream sent) followed by the upstream's response headers, names lower-cased. A header the upstream repeated is written as one line with the values joined by `, ` (Node joins them before the gateway sees them), except a header Node keeps once (such as `content-type`), which keeps its first value; only `set-cookie` is written once per value. Observed by the HTTP stack spike's checks against the reference. | `proxy/proxy-socket.ts:25-46,119` | C, U | todo |
 | WS-11 | After the 101, bytes flow both ways unmodified. | `proxy/proxy-socket.ts:121` | C | todo |
 | WS-12 | Bytes that arrive together with the handshake are not lost in either direction. A server that speaks first (Engine.IO sends its open packet immediately) is received intact. | `proxy/proxy-socket.ts:100-117` | C, U | todo |
 | WS-13 | The tunnel has no idle timeout on either side; an idle connection stays open. | `proxy/proxy-socket.ts:77-79,109` | C, U | todo |
