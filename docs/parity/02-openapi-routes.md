@@ -28,6 +28,7 @@ The gateway has no route configuration of its own. It reads each Upstream Servic
 | OAS-15 | Extension Contract: `x-api-mcp` (a list of `{ description? }`) is not interpreted by the gateway. It is only visible as `extra.xApiMcp`, for an application's MCP filter to use. | `libs/client/decorators/api-mcp.decorator.ts:3-7`; `restful/services/open-api.service.ts:118-127` | U | todo |
 | OAS-16 | The flags are information for middleware. The gateway itself never rejects a request because a Route requires authentication. | `restful/services/open-api.service.ts:101-102` | C | todo |
 | OAS-17 | **Deviation D3.** A path-item key that is not one of the eight methods (`parameters`, `summary`, `description`, `servers`, `$ref`, `trace`) is skipped. Reference: building the table throws, and the document does not load. | `restful/services/open-api.service.ts:91-97` | R | todo |
+| OAS-23 | **Deviation D3.** A document without `info` still loads; title and version are not needed for routing. Reference: building the table throws, and the document does not load. | `restful/services/open-api.service.ts:110-115` | R | todo |
 
 ## Matching
 
@@ -39,9 +40,5 @@ The gateway has no route configuration of its own. It reads each Upstream Servic
 | OAS-21 | Among Routes of the requested method, the first match in document order wins. There is no preference for literal paths over parameters. | `restful/services/open-api.service.ts:65-73` | C | todo |
 | OAS-22 | The method is compared case-insensitively. | `restful/services/open-api.service.ts:66` | U | todo |
 
-## For review
+Malformed percent-encoding in a request path never reaches matching; see REQ-26.
 
-These are crash paths in the reference that the approved Deviations do not name. Proposed handling is stated; say if you want otherwise.
-
-- **Document without `info`.** Reference: building the table throws on `doc.info.title`, so the document does not load. Proposed: load it anyway, as a natural extension of D3, since title and version are never used for routing.
-- **Malformed percent-encoding in a request path** (for example `/svc/users/%zz`). Reference: parameter decoding throws, giving 500. Proposed: treat as no match (405).

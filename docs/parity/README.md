@@ -36,19 +36,20 @@ A row marked **confirm** states behaviour read from code or inferred from a depe
 
 ## Deviations
 
-Approved on 2026-11-18. Each is implemented as described, tested Rust-only, and the reference behaviour is recorded in the row.
+Approved on 2026-11-18 (D10 and the wider D4 after the first Conformance Tests ran). Each is implemented as described, tested Rust-only, and the reference behaviour is recorded in the row.
 
 | # | Deviation | Reference behaviour | Rows |
 |---|---|---|---|
 | D1 | A rejected WebSocket upgrade is answered with an error status and closed | Client socket is left open with no answer | WS-05 |
 | D2 | Each Route rate limit has its own Bucket, scoped by Upstream Service | All limits on a Route share one counter; two services with the same method and pattern also share it | RL-17 |
-| D3 | Path-item keys that are not one of the eight supported methods are skipped | The whole document fails to load, so the service answers 503 | OAS-17 |
-| D4 | Unknown HTTP method answers 405; a Routed Request to a service whose document is not loaded answers 503 | 500 from an unhandled TypeError | REQ-08, REQ-15 |
+| D3 | Path-item keys that are not one of the eight supported methods are skipped, and a document without `info` still loads | The whole document fails to load, so the service answers 503 | OAS-17, OAS-23 |
+| D4 | Any method outside the eight supported ones answers 405; a Routed Request to a service whose document is not loaded answers 503 | 500 from an unhandled TypeError for methods Node accepts; a bare 400 from Node's parser for lower-case or unknown method tokens | REQ-08, REQ-15 |
 | D5 | `/document-json` never crashes; unknown `type` answers 404 | 500 on missing `parameters`, missing `components`, unknown `type`, or a hidden operation on a multi-method path | DOC-10, DOC-14, DOC-15 |
 | D6 | `/documents`: `?type=` selects a service; embedded JSON is escaped | `?type=` never matches; JSON is embedded unescaped in a script | DOC-04 |
 | D7 | MCP path arguments are URL-encoded before substitution | Substituted raw, so `../x` can reach another upstream operation | MCP-17 |
 | D8 | An MCP schema referenced more than once resolves every time | Second and later references resolve to `{}` | MCP-12 |
 | D9 | Query strings match the reference for common shapes only | Parsed by Express and re-serialised by undici | FWD-04 |
+| D10 | When Redis cannot be reached, a request that needs a Bucket answers 500 within 2 seconds | The request waits about 73 s while the Redis client retries, then answers 500 | REQ-24 |
 
 D9 is open-ended: each uncommon query shape found to differ is added to FWD-04 as it is discovered.
 
