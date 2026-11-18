@@ -9,6 +9,7 @@ publish.workspace = true
 [dependencies]
 axum = { version = "0.8.9", default-features = false, features = ["http1", "json", "tokio"] }
 http = "1.5.0"
+jsonwebtoken = { version = "12.0.0", default-features = false, features = ["rust_crypto"] }
 rust-gateway = { path = "../rust-gateway" }
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = { version = "1.0.154", features = ["preserve_order"] }

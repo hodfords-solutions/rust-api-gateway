@@ -9,6 +9,7 @@
 //!
 //! Logs go to standard error; `RUST_LOG` filters them (default `info`).
 
+mod bench;
 mod config;
 mod protocol;
 mod sample;
@@ -60,7 +61,11 @@ async fn run() -> Result<(), ConfigError> {
     let (settings, gateway) = match &conformance {
         Some(path) => {
             let settings = ConformanceConfig::load(path)?.into_settings()?;
-            let gateway = conformance_gateway(&settings)?;
+            let gateway = if bench::selected() {
+                bench::gateway(&settings)?
+            } else {
+                conformance_gateway(&settings)?
+            };
             (settings, gateway)
         }
         None => {
