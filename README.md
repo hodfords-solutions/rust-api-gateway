@@ -131,7 +131,7 @@ cargo run -p rust-gateway-server
 
 ## Benchmarks
 
-[benches/RESULTS.md](benches/RESULTS.md) holds the results and the machine they were taken on; [benches/README.md](benches/README.md) explains the method. Both gateways run in Docker with the same limits, the same configuration and the same JWT middleware. That middleware stands for what production middleware is assumed to do, which has not been confirmed.
+[benches/RESULTS.md](benches/RESULTS.md) holds the results and the machine they were taken on; [benches/README.md](benches/README.md) explains the method. Both gateways run in Docker with the same limits, the same configuration and the same JWT middleware, which the user confirmed on 2026-11-18 as representative of their production middleware.
 
 ## Layout
 

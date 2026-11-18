@@ -12,9 +12,8 @@ Two kinds, both run by hand (never a CI gate):
 
 Results and the machine they were taken on: [RESULTS.md](RESULTS.md).
 
-**Assumption.** Both gateways run the middleware set EX-05 (below), which stands for what
-production middleware is assumed to do. Nobody has confirmed that assumption; say so wherever
-the numbers are shown.
+**Middleware.** Both gateways run the middleware set EX-05 (below). The user confirmed on
+2026-11-18 that it is representative of their production middleware.
 
 ## Micro-benchmarks
 

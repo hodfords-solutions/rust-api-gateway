@@ -113,7 +113,7 @@ python3 benches/scripts/bench.py
 python3 benches/scripts/bench.py --smoke
 ```
 
-Both gateways run the benchmark middleware set EX-05 (JWT verification), which is an unconfirmed assumption about production middleware.
+Both gateways run the benchmark middleware set EX-05 (JWT verification), which the user confirmed on 2026-11-18 as representative of their production middleware.
 
 ## Writing a scenario
 
