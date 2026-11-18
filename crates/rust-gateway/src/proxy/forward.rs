@@ -140,12 +140,8 @@ pub(crate) async fn forward(
         out.append(name, value);
     }
     parts.headers = out;
-    if parts.status.canonical_reason().is_none() {
-        // Node's reason phrase for codes it does not know (FWD-14).
-        parts
-            .extensions
-            .insert(hyper::ext::ReasonPhrase::from_static(b"unknown"));
-    }
+    // The upstream's reason phrase is not passed on (FWD-14).
+    parts.extensions.remove::<hyper::ext::ReasonPhrase>();
     mark(&mut parts.extensions, ResponseKind::Proxied);
 
     let status = parts.status.as_u16();

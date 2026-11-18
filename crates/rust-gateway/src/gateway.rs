@@ -620,9 +620,20 @@ mod tests {
         };
         options.scalar_options = Some(json!({ "showExtensions": true }));
         options.bypass_route_prefixes = vec!["svc/public".into()];
-        assert_eq!(options.documents.hide_document_ids, ["AppController_getHello"]);
-        assert_eq!(options.scalar_options, Some(json!({ "showExtensions": true })));
-        assert!(GatewayBuilder::new(options).handlers.identity_resolver().is_none());
+        assert_eq!(
+            options.documents.hide_document_ids,
+            ["AppController_getHello"]
+        );
+        assert_eq!(
+            options.scalar_options,
+            Some(json!({ "showExtensions": true }))
+        );
+        assert!(
+            GatewayBuilder::new(options)
+                .handlers
+                .identity_resolver()
+                .is_none()
+        );
     }
 
     // CFG-10: the undici options the port maps, with undici's defaults.
