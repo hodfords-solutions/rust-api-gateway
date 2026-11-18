@@ -36,7 +36,7 @@ A row marked **confirm** states behaviour read from code or inferred from a depe
 
 ## Deviations
 
-Approved on 2026-11-18 (D10 and the wider D4 after the first Conformance Tests ran). Each is implemented as described, tested Rust-only, and the reference behaviour is recorded in the row.
+Approved on 2026-11-18 (D10 and the wider D4 after the first Conformance Tests ran; D11, D13 and D14 once the areas they concern were implemented). There is no D12: the exact bytes it would have excused (WS-15) were reproduced. Each is implemented as described, tested Rust-only, and the reference behaviour is recorded in the row.
 
 | # | Deviation | Reference behaviour | Rows |
 |---|---|---|---|
@@ -50,6 +50,9 @@ Approved on 2026-11-18 (D10 and the wider D4 after the first Conformance Tests r
 | D8 | An MCP schema referenced more than once resolves every time | Second and later references resolve to `{}` | MCP-12 |
 | D9 | Query strings match the reference for common shapes only | Parsed by Express and re-serialised by undici | FWD-04 |
 | D10 | When Redis cannot be reached, a request that needs a Bucket answers 500 within 2 seconds | The request waits about 73 s while the Redis client retries, then answers 500 | REQ-24 |
+| D11 | The gateway does not send `X-Powered-By` unless the application turns it on (`GatewayBuilder::x_powered_by(true)`) | Every response carries `X-Powered-By: Express`, an Express default | FWD-15, REQ-23 |
+| D13 | Edge cases of the MCP transport follow the Rust SDK `rmcp`: JSON-RPC batches, malformed or unacceptable requests, a response sent by the client, SSE framing, and some error codes. `initialize`, `tools/list`, `tools/call` and authentication match the reference | The TypeScript SDK's answers: batches accepted, JSON-RPC error bodies with status 400, 406 or 415, an `event: message` line in SSE | MCP-02 |
+| D14 | Tracing sends one `traceparent` to the upstream, a WebSocket handshake span continues the client's trace and ends at the handshake, and only what the gateway instruments has spans | Auto-instrumentation: a second `traceparent` is appended when the client sent one, a WebSocket span starts a new trace and lasts until the tunnel closes, and Express, NestJS, DNS and Redis have spans | OTEL-02 to OTEL-04 |
 
 D9 is open-ended: each uncommon query shape found to differ is added to FWD-04 as it is discovered.
 
