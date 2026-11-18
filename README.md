@@ -4,7 +4,7 @@ A Rust port of the [`@hodfords/nestjs-api-gateway`](https://www.npmjs.com/packag
 
 What clients and upstream services observe is the same as with the Reference Gateway, apart from a short list of approved [Deviations](docs/parity/README.md#deviations). That claim is tested: 113 scenarios run against both gateways and compare the results.
 
-**Status:** every feature area is implemented. One checklist row is open (MCP-02, edge cases of the MCP transport). Not published to crates.io.
+**Status:** every feature area is implemented and every row of the Parity Checklist is closed (`done`, `deviation` or `n/a`). Not published to crates.io.
 
 ## What it does
 
@@ -24,6 +24,10 @@ It does not add what the Reference Gateway lacks: load balancing, retries, circu
 The crate is used from a git or path dependency until it is published. The gateway is built from options and handlers, then served:
 
 ```rust
+//! A gateway for one Upstream Service, with a proxy middleware and Redis-backed rate
+//! limiting. Run with `cargo run -p rust-gateway --example quickstart` (needs Redis on
+//! `localhost:6379` and the upstream on `localhost:4020`).
+
 use rust_gateway::Gateway;
 use rust_gateway::gateway::GatewayOptions;
 use rust_gateway::handler::{GatewayRequest, MiddlewareError, ProxyMiddleware, async_trait};
@@ -83,14 +87,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 }
 ```
 
-This snippet is illustrative and is not compiled by the test suite. The compiled, tested equivalent is the example binary: [`crates/rust-gateway-server/src/sample.rs`](crates/rust-gateway-server/src/sample.rs) has one handler of every kind and [`main.rs`](crates/rust-gateway-server/src/main.rs) wires them.
+This is the example [`crates/rust-gateway/examples/quickstart.rs`](crates/rust-gateway/examples/quickstart.rs), compiled with the crate's examples (`cargo build -p rust-gateway --examples`, and in CI by `cargo clippy --all-targets`). A fuller one is the example binary: [`crates/rust-gateway-server/src/sample.rs`](crates/rust-gateway-server/src/sample.rs) has one handler of every kind and [`main.rs`](crates/rust-gateway-server/src/main.rs) wires them.
 
 Things to know:
 
 - `Gateway::router()` returns an `axum::Router` whose fallback is the proxy, so the application's own routes (`GatewayBuilder::routes`) take precedence. WebSocket upgrades are proxied only when the gateway is served with `Gateway::serve`.
 - Startup does not wait for upstream documents. `Gateway::ready()` resolves once every service's first load has settled.
 - Middleware passes values to later middleware and to the Identity resolver through `GatewayRequest::extensions_mut()`.
-- The gateway sends `X-Powered-By: Express`, as the Reference Gateway does. `GatewayBuilder::x_powered_by(false)` turns it off.
+- The gateway sends no `X-Powered-By` header, where the Reference Gateway sends `X-Powered-By: Express` (Deviation D11). `GatewayBuilder::x_powered_by(true)` turns it on.
 
 ## Coming from the NestJS library
 
