@@ -6,6 +6,7 @@ use std::sync::Arc;
 use http::HeaderMap;
 
 use super::bucket::{self, window_ms};
+pub use crate::route::RouteLimit;
 use super::client_address::{client_key, forwarded_for};
 use super::js;
 use super::options::{BucketLimit, OptionsError, RateLimitOptions, ValidatedOptions};
@@ -37,26 +38,10 @@ impl<'a> RouteKey<'a> {
     }
 }
 
-/// One entry of a Route's `x-rate-limits`.
-///
-/// **Temporary copy.** The canonical `RouteLimit` is defined with the Route table in the
-/// `route` module; the two are unified when the modules are merged. Keep this shape.
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub struct RouteLimit {
-    /// Requests admitted per window. 0 behaves like 1 for a limit without a status (RL-03);
-    /// a status-scoped limit of 0 rejects every request, as in the reference.
-    pub limit: u64,
-    /// Window length in seconds; fractions are truncated to whole milliseconds (RL-04).
-    pub ttl: f64,
-    /// When set (and not 0, which the reference treats as unset), the Bucket only counts
-    /// responses with this status (RL-16).
-    pub status: Option<u16>,
-}
-
-impl RouteLimit {
-    fn effective_status(&self) -> Option<u16> {
-        self.status.filter(|&status| status != 0)
-    }
+/// The status a Route limit is scoped to: `None` when it has none or it is 0, which the
+/// reference treats as unset.
+fn effective_status(limit: &RouteLimit) -> Option<u16> {
+    limit.status.filter(|&status| status != 0)
 }
 
 /// Whether any of a Route's limits is status-scoped, so that the pipeline must call
@@ -65,7 +50,7 @@ impl RouteLimit {
 pub fn has_status_limits(limits: &[RouteLimit]) -> bool {
     limits
         .iter()
-        .any(|limit| limit.effective_status().is_some())
+        .any(|limit| effective_status(limit).is_some())
 }
 
 /// What the Identity resolver returned for a request: the key its Custom and Route Buckets
@@ -354,7 +339,7 @@ impl RateLimiter {
         }
 
         for limit in limits {
-            let status = limit.effective_status();
+            let status = effective_status(limit);
             let window = window_ms(limit.ttl);
             let key = bucket::route_key(&route, &identity, limit.limit, window, status);
             let admitted = if status.is_some() {
@@ -391,7 +376,7 @@ impl RateLimiter {
             None => state.client_key.as_str(),
         };
         for limit in limits {
-            if limit.effective_status() != Some(status) {
+            if effective_status(limit) != Some(status) {
                 continue;
             }
             let key = bucket::route_key(

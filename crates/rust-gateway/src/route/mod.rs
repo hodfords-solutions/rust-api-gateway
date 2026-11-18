@@ -109,7 +109,7 @@ impl fmt::Display for RouteMethod {
 /// Numeric strings are read as numbers, as JavaScript and Lua coerce them. A `limit` or
 /// `ttl` that is missing or not numeric becomes `0` or `NaN`; the reference answers 500 or
 /// 429 for such limits depending on the path, and they are not supported further.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub struct RouteLimit {
     /// Requests allowed per window.
     pub limit: u64,
