@@ -119,37 +119,50 @@ fn golden_registry_matches_the_reference_and_d8() {
 
 /// D8 (MCP-12): the golden vectors show where the two modes differ, so the deviation is
 /// exercised and the reference's single resolution is recorded.
-// Open fuzz finding FUZZ-04 (docs/security/fuzzing.md): under Deviation D8 a schema
-// referenced twice from each level of a chain is expanded every time, so a document of a
-// few KB yields an input schema (and work) exponential in the chain length. The reference
-// resolves each reference once per request body.
+// FUZZ-04 (docs/security/fuzzing.md): under Deviation D8 a schema referenced twice from each
+// level of a chain used to expand 2^n times. Past `REPEATED_REF_BUDGET` copied values, a
+// reference repeated in the same request body resolves to `{}` as in the reference, so the
+// work stays bounded; below it, nothing changes.
 #[test]
-#[ignore = "fuzz finding FUZZ-04: $ref chains expand exponentially under Deviation D8"]
 fn fuzz_04_shared_references_do_not_expand_exponentially() {
-    let n = 12;
-    let mut schemas = Map::new();
-    for i in 0..n {
-        let next = format!("#/components/schemas/S{}", i + 1);
-        schemas.insert(
-            format!("S{i}"),
-            json!({"type": "object", "properties": {"a": {"$ref": next}, "b": {"$ref": next}}}),
-        );
+    fn chain(n: usize) -> Value {
+        let mut schemas = Map::new();
+        for i in 0..n {
+            let next = format!("#/components/schemas/S{}", i + 1);
+            schemas.insert(
+                format!("S{i}"),
+                json!({"type": "object", "properties": {"a": {"$ref": next}, "b": {"$ref": next}}}),
+            );
+        }
+        schemas.insert(format!("S{n}"), json!({"type": "string"}));
+        json!({
+            "openapi": "3.0.0",
+            "paths": {"/x": {"post": {"operationId": "x", "requestBody": {"content": {
+                "application/json": {"schema": {"$ref": "#/components/schemas/S0"}}
+            }}}}},
+            "components": {"schemas": schemas}
+        })
     }
-    schemas.insert(format!("S{n}"), json!({"type": "string"}));
-    let document = json!({
-        "openapi": "3.0.0",
-        "paths": {"/x": {"post": {"operationId": "x", "requestBody": {"content": {
-            "application/json": {"schema": {"$ref": "#/components/schemas/S0"}}
-        }}}}},
-        "components": {"schemas": schemas}
-    });
-    let store = store_with(&[("svc", document)]);
-    let build = build_tools(&store, &McpOptions::enabled());
-    let schema = serde_json::to_string(&build.tools[0].input_schema).unwrap();
+    let body = |n: usize| {
+        let store = store_with(&[("svc", chain(n))]);
+        let build = build_tools(&store, &McpOptions::enabled());
+        Value::Object(build.tools[0].input_schema.clone())["properties"]["body"].clone()
+    };
+
+    // Below the budget, every repeated reference still resolves (D8).
+    let small = body(3);
+    assert_eq!(
+        small["properties"]["b"]["properties"]["a"]["properties"]["b"],
+        json!({"type": "string"})
+    );
+
+    let started = std::time::Instant::now();
+    let large = serde_json::to_string(&body(64)).unwrap();
+    assert!(large.len() < 32 * 1024 * 1024, "{} bytes", large.len());
     assert!(
-        schema.len() < 64 * 1024,
-        "input schema is {} bytes",
-        schema.len()
+        started.elapsed() < std::time::Duration::from_secs(5),
+        "took {:?}",
+        started.elapsed()
     );
 }
 
