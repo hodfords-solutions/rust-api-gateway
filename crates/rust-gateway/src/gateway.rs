@@ -33,6 +33,8 @@ use axum::Router;
 use serde_json::Value;
 use tokio::net::TcpListener;
 
+use crate::documents::{self, DocumentEndpoints};
+use crate::endpoints::Endpoints;
 use crate::error::{DefaultErrorRenderer, ErrorRenderer};
 use crate::handler::{
     DEFAULT_PRIORITY, IdentityResolver, McpAuthentication, ProxyMiddleware, Registry,
@@ -126,19 +128,6 @@ pub struct DocumentOptions {
     pub hide_document_ids: Vec<String>,
 }
 
-/// MCP options (CFG-13), as plain data. Used by the MCP endpoint (area 08).
-#[derive(Debug, Clone, Default, PartialEq)]
-pub struct McpOptions {
-    /// Whether `POST /mcp` exists.
-    pub enabled: bool,
-    /// `allowedServices`: the Service Prefixes whose operations become tools.
-    pub allowed_services: Option<Vec<String>>,
-    /// `allowedOperations`: the operation ids that become tools.
-    pub allowed_operations: Option<Vec<String>>,
-    /// `serverInfo`: the MCP server's name and version.
-    pub server_info: Option<Value>,
-}
-
 /// The gateway's options: the reference's `ApiGatewayOption` (API-01, CFG-01 to CFG-14).
 #[derive(Debug, Clone)]
 pub struct GatewayOptions {
@@ -163,8 +152,10 @@ pub struct GatewayOptions {
     pub documents: DocumentOptions,
     /// `scalarOptions` (CFG-11), passed to the document page.
     pub scalar_options: Option<Value>,
-    /// `mcp` (CFG-13).
-    pub mcp: Option<McpOptions>,
+    /// `mcp` (CFG-13): the MCP server, with its callbacks. `POST /mcp` exists only when
+    /// this is present and [`McpOptions::enabled`](crate::mcp::McpOptions::enabled).
+    #[cfg(feature = "mcp")]
+    pub mcp: Option<crate::mcp::McpOptions>,
 }
 
 impl GatewayOptions {
@@ -185,6 +176,7 @@ impl GatewayOptions {
             bypass_route_prefixes: Vec::new(),
             documents: DocumentOptions::default(),
             scalar_options: None,
+            #[cfg(feature = "mcp")]
             mcp: None,
         }
     }
@@ -431,7 +423,47 @@ impl GatewayBuilder {
             Some(fetcher) => fetcher,
             None => Arc::new(HttpDocumentFetcher::new()?),
         };
-        let loader = DocumentLoader::new(Arc::clone(&store), fetcher).start();
+        let loader = DocumentLoader::new(Arc::clone(&store), Arc::clone(&fetcher)).start();
+        let endpoints = Endpoints {
+            documents: options.documents.enabled.then(|| {
+                DocumentEndpoints::new(
+                    Arc::clone(&store),
+                    fetcher,
+                    documents::DocumentOptions {
+                        exclude_headers: options.exclude_headers.clone(),
+                        open_api_security_keys: options.open_api_security_keys.clone(),
+                        hide_document_ids: options.documents.hide_document_ids.clone(),
+                    },
+                    options.scalar_options.clone(),
+                )
+            }),
+            #[cfg(feature = "mcp")]
+            mcp: match &options.mcp {
+                Some(mcp) if mcp.enabled => {
+                    let mut mcp_pools = HashMap::new();
+                    for service in &options.api_services {
+                        let origin =
+                            Origin::parse(&service.host).map_err(BuildError::UpstreamOrigin)?;
+                        let pool =
+                            UpstreamPool::new(origin, options.pool.clone(), Some(Arc::clone(&tls)))
+                                .with_raw_heads();
+                        mcp_pools.insert(service.prefix.clone(), Arc::new(pool));
+                    }
+                    Some(crate::endpoints::mcp::McpMount::start(
+                        crate::endpoints::mcp::McpParts {
+                            store: Arc::clone(&store),
+                            options: mcp.clone(),
+                            limiter: limiter.clone(),
+                            handlers: self.handlers.clone(),
+                            exclude_headers: options.exclude_headers.clone(),
+                            pools: mcp_pools,
+                            renderer: Arc::clone(&self.renderer),
+                        },
+                    ))
+                }
+                _ => None,
+            },
+        };
         Ok(Gateway {
             shared: Arc::new(Shared {
                 options,
@@ -442,6 +474,7 @@ impl GatewayBuilder {
                 handlers: self.handlers,
                 renderer: self.renderer,
                 x_powered_by: self.x_powered_by,
+                endpoints,
                 _loader: Mutex::new(Some(loader)),
             }),
             routes: self.routes,
@@ -477,6 +510,7 @@ pub(crate) struct Shared {
     pub(crate) handlers: Handlers,
     pub(crate) renderer: Arc<dyn ErrorRenderer>,
     pub(crate) x_powered_by: bool,
+    pub(crate) endpoints: Endpoints,
     _loader: Mutex<Option<LoaderHandle>>,
 }
 
@@ -546,8 +580,11 @@ impl Gateway {
         &self.shared.renderer
     }
 
-    /// The router to serve: the application's routes (CFG-18), the gateway's own endpoints,
-    /// and the proxy as the fallback for everything else (REQ-01), wrapped in the HTTP
+    /// The router to serve: the application's routes (CFG-18), then the gateway's own
+    /// endpoints (`/documents` and `/document-json` when documents are enabled, CFG-14;
+    /// `POST /mcp` when MCP is enabled, CFG-13; matched as Express matches them, ignoring
+    /// ASCII case and one trailing slash), then the proxy for everything else (REQ-01),
+    /// wrapped in the HTTP
     /// behaviours the reference gets from Express and Node (REQ-26, the asterisk-form
     /// target, `X-Powered-By`, `Date`, `Connection` and `Keep-Alive` on every response).
     ///
@@ -556,28 +593,29 @@ impl Gateway {
     /// [`axum::extract::ConnectInfo`] for the client address (FWD-07, RL-06).
     pub fn router(&self) -> Router {
         let gateway = self.clone();
-        let proxy = move |request: axum::extract::Request| {
+        let fallback = move |request: axum::extract::Request| {
             let gateway = gateway.clone();
-            async move { crate::proxy::handle(&gateway.shared, request).await }
+            async move { crate::endpoints::dispatch(&gateway.shared, request).await }
         };
         self.routes
             .clone()
-            .merge(self.endpoints())
-            .fallback(proxy)
+            .fallback(fallback)
             .layer(axum::middleware::from_fn_with_state(
                 Arc::clone(&self.shared),
                 crate::server::node_compat,
             ))
     }
 
-    /// The gateway's own endpoints, which take precedence over the proxy.
-    ///
-    /// This is where `/documents` and `/document-json` (area 07, when
-    /// [`DocumentOptions::enabled`]) and `POST /mcp` (area 08, when [`McpOptions::enabled`];
-    /// other methods on `/mcp` stay with the proxy, MCP-01) are mounted. None exist yet, so
-    /// every such request reaches the proxy.
-    fn endpoints(&self) -> Router {
-        Router::new()
+    /// The current MCP tools (API-21, MCP-05 to MCP-13): a snapshot of the list `tools/list`
+    /// answers, rebuilt after the first document load and every 5 minutes. `None` when MCP
+    /// is not enabled (CFG-13).
+    #[cfg(feature = "mcp")]
+    pub fn mcp_tools(&self) -> Option<Arc<Vec<Arc<crate::mcp::ToolDefinition>>>> {
+        self.shared
+            .endpoints
+            .mcp
+            .as_ref()
+            .map(|mount| mount.registry.tools())
     }
 
     /// Serves the gateway on `listener` until `shutdown` resolves, then stops accepting

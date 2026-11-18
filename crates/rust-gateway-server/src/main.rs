@@ -103,7 +103,10 @@ fn conformance_gateway(settings: &Settings) -> Result<Gateway, ConfigError> {
             let documents = std::sync::Arc::clone(&documents);
             async move {
                 documents.ready().await;
-                let body = json!({ "services": documents.loaded_services() }).to_string();
+                // `Object.keys(apiDocs)`: array-index prefixes first (DOC-02).
+                let services =
+                    rust_gateway::documents::page_service_order(&documents.loaded_services());
+                let body = json!({ "services": services }).to_string();
                 let mut response = Response::new(Body::from(body));
                 response
                     .headers_mut()

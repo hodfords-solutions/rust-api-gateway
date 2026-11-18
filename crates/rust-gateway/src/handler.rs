@@ -41,8 +41,9 @@ pub const DEFAULT_PRIORITY: i32 = 1;
 /// A request as handlers see it.
 ///
 /// The URL is already normalised (REQ-02) and the `excludeHeaders` are already removed from
-/// the headers (REQ-03). Handlers do not see the body: it is streamed to the upstream
-/// untouched (FWD-13).
+/// the headers (REQ-03). Handlers do not see the body of a proxied request: it is streamed to
+/// the upstream untouched (FWD-13). For an MCP tool call, [`body`](Self::body) holds the tool
+/// arguments (MCP-16).
 #[derive(Debug)]
 pub struct GatewayRequest {
     method: Method,
@@ -51,6 +52,7 @@ pub struct GatewayRequest {
     url: String,
     headers: HeaderMap,
     peer: Option<SocketAddr>,
+    body: Option<serde_json::Value>,
     extensions: Extensions,
 }
 
@@ -74,6 +76,7 @@ impl GatewayRequest {
             url: url.into(),
             headers,
             peer,
+            body: None,
             extensions: Extensions::new(),
         }
     }
@@ -81,6 +84,23 @@ impl GatewayRequest {
     pub(crate) fn with_version(mut self, version: Version) -> Self {
         self.version = version;
         self
+    }
+
+    /// This request with a parsed body (the tool arguments of an MCP tool call, MCP-16).
+    pub fn with_body(mut self, body: serde_json::Value) -> Self {
+        self.body = Some(body);
+        self
+    }
+
+    /// This request with `extensions` as its attached values, replacing any.
+    pub fn with_extensions(mut self, extensions: Extensions) -> Self {
+        self.extensions = extensions;
+        self
+    }
+
+    /// The attached values, taken out of the request (for handing them to the next stage).
+    pub fn into_extensions(self) -> Extensions {
+        self.extensions
     }
 
     /// The request method.
@@ -117,6 +137,13 @@ impl GatewayRequest {
     /// The client connection's address, when the server knows it.
     pub fn peer_addr(&self) -> Option<SocketAddr> {
         self.peer
+    }
+
+    /// The request body as the reference's middleware sees `request.body`: the tool
+    /// arguments for an MCP tool call (MCP-16), `None` for a proxied request, whose body is
+    /// streamed and never parsed.
+    pub fn body(&self) -> Option<&serde_json::Value> {
+        self.body.as_ref()
     }
 
     /// Values attached to the request by handlers (REQ-20).
@@ -230,6 +257,13 @@ pub enum McpAuthDecision {
 }
 
 /// An MCP authentication handler (API-09), run for `POST /mcp` (area 08).
+///
+/// Handlers run in ascending priority before the MCP protocol reads the request (MCP-04).
+/// The request is the `/mcp` request as received: its URL normalised, its headers complete
+/// (the `excludeHeaders` are removed later, before the proxy middleware runs). Values a
+/// handler attaches to the request are visible to the Identity resolver and the proxy
+/// middleware of the tool calls it makes (REQ-20). An [`MiddlewareError::Http`] is answered
+/// with its status and body, any other error with 500.
 #[async_trait]
 pub trait McpAuthentication: Send + Sync + 'static {
     /// Authenticates one MCP request.

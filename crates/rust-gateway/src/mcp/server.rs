@@ -22,6 +22,9 @@ use rmcp::{ErrorData, RoleServer, ServerHandler};
 
 use super::executor::{BoxFuture, ToolExecutor};
 use super::options::ServerInfo;
+use crate::error::{DefaultErrorRenderer, ErrorRenderer};
+use crate::handler::{GatewayRequest, McpAuthDecision, McpAuthentication, MiddlewareError};
+use crate::request::normalize_request_url;
 
 /// The response body type of the endpoint.
 pub type McpBody = http_body_util::combinators::BoxBody<Bytes, Infallible>;
@@ -29,40 +32,10 @@ pub type McpBody = http_body_util::combinators::BoxBody<Bytes, Infallible>;
 /// The body of the 401 answer when an authentication handler refuses (MCP-04).
 pub const UNAUTHORIZED_BODY: &str = r#"{"error":"Unauthorized"}"#;
 
-/// The body of the 500 answer when an authentication handler fails (Nest's answer to an
-/// unhandled error).
+/// The body of the 500 answer when an authentication handler fails with an error that is
+/// not an HTTP error (Nest's answer to an unhandled error). The default error renderer
+/// renders it; see [`McpEndpoint::with_error_renderer`].
 pub const INTERNAL_ERROR_BODY: &str = r#"{"statusCode":500,"message":"Internal server error"}"#;
-
-/// What an MCP authentication handler decided.
-///
-/// TEMPORARY: the server session defines the gateway's handler traits; this local
-/// trait and its outcome stand in for the MCP one until then.
-#[derive(Debug)]
-pub enum McpAuthOutcome {
-    /// Continue with the next handler, then the MCP protocol.
-    Authenticated,
-    /// Stop with 401 [`UNAUTHORIZED_BODY`].
-    Unauthorized,
-    /// Stop with this response (the reference handler wrote its own response and returned
-    /// false).
-    Respond(http::Response<Bytes>),
-    /// The handler failed: stop with 500 [`INTERNAL_ERROR_BODY`].
-    Failed(String),
-}
-
-/// An MCP authentication handler (the reference's `McpAuthenticationMiddlewareHandler`).
-/// Handlers run in the order given to [`McpEndpoint::new`], which the application sorts by
-/// ascending priority (MCP-04, CFG-19). A handler may add extensions to the request; the
-/// tool-call backend sees them.
-///
-/// TEMPORARY: to be replaced by the trait the server session defines.
-pub trait McpAuthentication: Send + Sync {
-    /// Decides whether the `/mcp` request may proceed. The body has not been read.
-    fn authenticate<'a>(
-        &'a self,
-        request: &'a mut http::request::Parts,
-    ) -> BoxFuture<'a, McpAuthOutcome>;
-}
 
 /// The `rmcp` server handler: one per request in stateless mode.
 #[derive(Clone)]
@@ -161,23 +134,22 @@ impl ServerHandler for GatewayMcpServer {
     }
 }
 
-struct Inner {
-    service: StreamableHttpService<GatewayMcpServer, NeverSessionManager>,
-    authenticators: Vec<Arc<dyn McpAuthentication>>,
-}
-
 /// The `POST /mcp` endpoint (MCP-01 to MCP-04), as a tower service or through
-/// [`handle`](Self::handle). Mount it for `POST` only, on the paths the reference's Express
-/// route matches: `/mcp` in any letter case, with or without one trailing slash, with any
-/// query string. Every other method goes to the proxy (MCP-01).
+/// [`handle`](Self::handle). The gateway mounts it on the paths the reference's Express route
+/// matches: `/mcp` in any letter case, with or without one trailing slash, with any query
+/// string, for `POST` only. Every other method goes to the proxy (MCP-01).
 #[derive(Clone)]
 pub struct McpEndpoint {
-    inner: Arc<Inner>,
+    service: Arc<StreamableHttpService<GatewayMcpServer, NeverSessionManager>>,
+    authenticators: Arc<[Arc<dyn McpAuthentication>]>,
+    renderer: Arc<dyn ErrorRenderer>,
 }
 
 impl McpEndpoint {
     /// An endpoint calling tools with `executor`, whose registry's options give the server
-    /// info, behind `authenticators` (in that order).
+    /// info, behind `authenticators` (run in the order given: the gateway sorts them by
+    /// ascending priority, CFG-19). Errors of the authenticators are rendered by the
+    /// [`DefaultErrorRenderer`].
     pub fn new(
         executor: Arc<ToolExecutor>,
         authenticators: Vec<Arc<dyn McpAuthentication>>,
@@ -196,14 +168,26 @@ impl McpEndpoint {
             config,
         );
         Self {
-            inner: Arc::new(Inner {
-                service,
-                authenticators,
-            }),
+            service: Arc::new(service),
+            authenticators: authenticators.into(),
+            renderer: Arc::new(DefaultErrorRenderer),
         }
     }
 
+    /// Renders the errors of the authentication handlers with `renderer` (REQ-25): an
+    /// [`MiddlewareError::Http`] as [`GatewayError::Middleware`](crate::error::GatewayError),
+    /// any other as [`GatewayError::Internal`](crate::error::GatewayError).
+    pub fn with_error_renderer(mut self, renderer: Arc<dyn ErrorRenderer>) -> Self {
+        self.renderer = renderer;
+        self
+    }
+
     /// Handles one `/mcp` request: the authentication handlers, then the MCP protocol.
+    ///
+    /// The handlers see the request as a [`GatewayRequest`] whose peer address is the
+    /// [`axum::extract::ConnectInfo`] or [`std::net::SocketAddr`] extension of the request,
+    /// if any. What they attach to it is put back in the request's extensions, where the
+    /// tool calls find it.
     pub async fn handle<B>(&self, request: http::Request<B>) -> http::Response<McpBody>
     where
         B: Body + Send + 'static,
@@ -211,35 +195,64 @@ impl McpEndpoint {
         B::Error: Display,
     {
         let (mut parts, body) = request.into_parts();
-        for authenticator in &self.inner.authenticators {
-            match authenticator.authenticate(&mut parts).await {
-                McpAuthOutcome::Authenticated => {}
-                McpAuthOutcome::Unauthorized => {
-                    return json_response(http::StatusCode::UNAUTHORIZED, UNAUTHORIZED_BODY);
-                }
-                McpAuthOutcome::Respond(response) => {
-                    return response.map(|body| Full::new(body).boxed());
-                }
-                McpAuthOutcome::Failed(message) => {
-                    tracing::error!(target: "rust_gateway::mcp", "MCP authentication failed: {message}");
-                    return json_response(
-                        http::StatusCode::INTERNAL_SERVER_ERROR,
-                        INTERNAL_ERROR_BODY,
-                    );
-                }
+        if !self.authenticators.is_empty() {
+            let mut gateway_request = gateway_request(&mut parts);
+            for authenticator in self.authenticators.iter() {
+                let refusal = match authenticator.authenticate(&mut gateway_request).await {
+                    Ok(McpAuthDecision::Allow) => continue,
+                    Ok(McpAuthDecision::Deny) => {
+                        json_response(http::StatusCode::UNAUTHORIZED, UNAUTHORIZED_BODY)
+                    }
+                    Ok(McpAuthDecision::Respond(response)) => {
+                        response.map(|body| Full::new(body).boxed())
+                    }
+                    Err(error) => {
+                        if let MiddlewareError::Other(source) = &error {
+                            tracing::error!(target: "rust_gateway::mcp", "MCP authentication failed: {source}");
+                        }
+                        let rendered = self.renderer.render(&error.into_gateway_error());
+                        rendered.map(|body| Full::new(Bytes::from(body)).boxed())
+                    }
+                };
+                return refusal;
             }
+            parts.extensions = gateway_request.into_extensions();
         }
-        self.inner
-            .service
+        self.service
             .handle(http::Request::from_parts(parts, body))
             .await
     }
 }
 
+/// The `/mcp` request as the authentication handlers see it. Its extensions are moved into
+/// it and must be put back.
+fn gateway_request(parts: &mut http::request::Parts) -> GatewayRequest {
+    let peer = peer_addr(&parts.extensions);
+    let target = parts.uri.to_string();
+    let url = normalize_request_url(&target).unwrap_or(target);
+    GatewayRequest::new(
+        parts.method.clone(),
+        parts.uri.clone(),
+        url,
+        parts.headers.clone(),
+        peer,
+    )
+    .with_version(parts.version)
+    .with_extensions(std::mem::take(&mut parts.extensions))
+}
+
+/// The client address of a request: axum's `ConnectInfo`, or a plain `SocketAddr`.
+pub(crate) fn peer_addr(extensions: &http::Extensions) -> Option<std::net::SocketAddr> {
+    extensions
+        .get::<axum::extract::ConnectInfo<std::net::SocketAddr>>()
+        .map(|info| info.0)
+        .or_else(|| extensions.get::<std::net::SocketAddr>().copied())
+}
+
 impl std::fmt::Debug for McpEndpoint {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("McpEndpoint")
-            .field("authenticators", &self.inner.authenticators.len())
+            .field("authenticators", &self.authenticators.len())
             .finish_non_exhaustive()
     }
 }

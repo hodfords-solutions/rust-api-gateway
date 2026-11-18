@@ -10,7 +10,9 @@ use super::executor::{
     BoxFuture, ToolCallBackend, ToolCallContext, ToolCallRejection, UpstreamCall, UpstreamError,
     UpstreamResponse,
 };
-use super::server::{McpAuthOutcome, McpAuthentication};
+use crate::handler::{
+    GatewayRequest, McpAuthDecision, McpAuthentication, MiddlewareError, async_trait,
+};
 use crate::request::ProxyRequest;
 
 fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
@@ -125,19 +127,15 @@ impl ToolCallBackend for RecordingBackend {
 #[derive(Debug, Default, Clone, Copy)]
 pub struct HeaderAuthentication;
 
+#[async_trait]
 impl McpAuthentication for HeaderAuthentication {
-    fn authenticate<'a>(
-        &'a self,
-        request: &'a mut http::request::Parts,
-    ) -> BoxFuture<'a, McpAuthOutcome> {
-        let mode = request
-            .headers
-            .get("x-test-mcp-auth")
-            .and_then(|v| v.to_str().ok())
-            .unwrap_or("allow");
-        let outcome = match mode {
-            "allow" => McpAuthOutcome::Authenticated,
-            "deny" => McpAuthOutcome::Unauthorized,
+    async fn authenticate(
+        &self,
+        request: &mut GatewayRequest,
+    ) -> Result<McpAuthDecision, MiddlewareError> {
+        match request.header("x-test-mcp-auth").unwrap_or("allow") {
+            "allow" => Ok(McpAuthDecision::Allow),
+            "deny" => Ok(McpAuthDecision::Deny),
             "respond" => {
                 let mut response = http::Response::new(bytes::Bytes::from_static(
                     br#"{"message":"test mcp authentication response"}"#,
@@ -147,10 +145,11 @@ impl McpAuthentication for HeaderAuthentication {
                     http::header::CONTENT_TYPE,
                     http::HeaderValue::from_static("application/json; charset=utf-8"),
                 );
-                McpAuthOutcome::Respond(response)
+                Ok(McpAuthDecision::Respond(response))
             }
-            other => McpAuthOutcome::Failed(format!("unknown x-test-mcp-auth mode: {other}")),
-        };
-        Box::pin(std::future::ready(outcome))
+            other => Err(MiddlewareError::other(format!(
+                "unknown x-test-mcp-auth mode: {other}"
+            ))),
+        }
     }
 }

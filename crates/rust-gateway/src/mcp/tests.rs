@@ -14,6 +14,7 @@ use serde_json::{Map, Value, json};
 use super::registry::build_tools_with;
 use super::testing::{HeaderAuthentication, RecordingBackend};
 use super::*;
+use crate::handler::{McpAuthDecision, McpAuthentication};
 use crate::openapi::{DocumentStore, SecurityKeys};
 use crate::rate_limit::TooManyRequests;
 use crate::request::ProxyRequest;
@@ -1319,17 +1320,18 @@ async fn endpoint_authentication() {
         Allow,
         Deny,
     }
+    #[crate::handler::async_trait]
     impl McpAuthentication for Counting {
-        fn authenticate<'a>(
-            &'a self,
-            request: &'a mut http::request::Parts,
-        ) -> BoxFuture<'a, McpAuthOutcome> {
+        async fn authenticate(
+            &self,
+            request: &mut crate::handler::GatewayRequest,
+        ) -> Result<McpAuthDecision, crate::handler::MiddlewareError> {
             self.0.fetch_add(1, Ordering::SeqCst);
-            request.extensions.insert(42_u32);
-            Box::pin(std::future::ready(match self.1 {
-                McpAuthOutcomeKind::Allow => McpAuthOutcome::Authenticated,
-                McpAuthOutcomeKind::Deny => McpAuthOutcome::Unauthorized,
-            }))
+            request.extensions_mut().insert(42_u32);
+            Ok(match self.1 {
+                McpAuthOutcomeKind::Allow => McpAuthDecision::Allow,
+                McpAuthOutcomeKind::Deny => McpAuthDecision::Deny,
+            })
         }
     }
     let registry = Arc::new(ToolRegistry::new(

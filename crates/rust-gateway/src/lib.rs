@@ -12,6 +12,7 @@
 //! [`Gateway::serve`] or mount [`Gateway::router`] in an axum application.
 
 pub mod documents;
+mod endpoints;
 pub mod error;
 pub mod gateway;
 pub mod handler;

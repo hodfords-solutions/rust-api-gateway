@@ -179,7 +179,7 @@ pub(crate) fn render_error(shared: &Shared, error: &GatewayError) -> Response<Bo
 
 /// Express's default ETag for a response body (the `etag` package, weak): the length in hex
 /// and the first 27 characters of the base64 SHA-1.
-fn weak_etag(body: &[u8]) -> String {
+pub(crate) fn weak_etag(body: &[u8]) -> String {
     let digest = sha1_smol::Sha1::from(body).digest().bytes();
     let encoded = base64(&digest);
     let hash: String = encoded.chars().take(27).collect();

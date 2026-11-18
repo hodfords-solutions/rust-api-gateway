@@ -36,7 +36,7 @@ use crate::request::{
     strip_service_prefix,
 };
 
-pub(crate) use forward::render_error;
+pub(crate) use forward::{render_error, weak_etag};
 
 /// Handles one request that reached the proxy.
 pub(crate) async fn handle(shared: &Arc<Shared>, request: Request<Body>) -> Response<Body> {

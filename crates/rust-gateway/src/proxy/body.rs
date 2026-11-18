@@ -35,6 +35,17 @@ impl UpstreamRequestBody {
             length: Some(0),
         }
     }
+
+    /// A body that is all there: `bytes`, then the end.
+    #[cfg_attr(not(feature = "mcp"), allow(dead_code))]
+    pub(crate) fn full(bytes: Bytes) -> Self {
+        let length = Some(bytes.len() as u64);
+        Self {
+            arrived: (!bytes.is_empty()).then_some(bytes),
+            rest: None,
+            length,
+        }
+    }
 }
 
 impl HttpBody for UpstreamRequestBody {

@@ -34,6 +34,10 @@ use crate::handler::BoxError;
 
 use super::body::UpstreamRequestBody;
 
+/// The request body type the pool sends.
+#[cfg_attr(not(feature = "mcp"), allow(unused_imports))]
+pub(crate) use super::body::UpstreamRequestBody as RequestBody;
+
 /// Why an upstream request produced no response.
 #[derive(Debug, thiserror::Error)]
 pub(crate) enum PoolError {
@@ -105,6 +109,7 @@ pub(crate) struct UpstreamPool {
     tls: Option<tokio_rustls::TlsConnector>,
     idle: Mutex<VecDeque<Idle>>,
     permits: Option<Arc<Semaphore>>,
+    raw_heads: bool,
 }
 
 impl fmt::Debug for UpstreamPool {
@@ -136,7 +141,16 @@ impl UpstreamPool {
             tls,
             idle: Mutex::new(VecDeque::new()),
             permits,
+            raw_heads: false,
         }
+    }
+
+    /// This pool, with connections that write the head carried in a request's
+    /// [`RAW_HEAD_HEADER`] instead of hyper's (see [`RawHeadIo`]).
+    #[cfg_attr(not(feature = "mcp"), allow(dead_code))]
+    pub(crate) fn with_raw_heads(mut self) -> Self {
+        self.raw_heads = true;
+        self
     }
 
     pub(crate) fn origin(&self) -> &Origin {
@@ -219,11 +233,16 @@ impl UpstreamPool {
                     .connect(name, tcp)
                     .await
                     .map_err(|e| PoolError::Tls(e.to_string()))?;
-                handshake(stream).await
+                if self.raw_heads {
+                    handshake(RawHeadIo::new(stream)).await
+                } else {
+                    handshake(stream).await
+                }
             }
             None if self.origin.https => Err(PoolError::Tls(
                 "no TLS configuration for an https upstream".to_string(),
             )),
+            None if self.raw_heads => handshake(RawHeadIo::new(tcp)).await,
             None => handshake(tcp).await,
         }
     }
@@ -242,6 +261,170 @@ where
         }
     });
     Ok(sender)
+}
+
+/// The header that carries a request's exact head (hex-encoded) on a connection of a pool
+/// made [`with_raw_heads`](UpstreamPool::with_raw_heads).
+#[cfg_attr(not(feature = "mcp"), allow(dead_code))]
+pub(crate) const RAW_HEAD_HEADER: &str = "x-rust-gateway-raw-head";
+
+/// A connection that writes each request head as the request's [`RAW_HEAD_HEADER`] gives it.
+///
+/// hyper writes the headers of a map grouped by name, in lower case, after the request line
+/// of a parsed URI. The MCP executor must write undici's head instead: names in their case,
+/// repeated names apart, a target `http::Uri` refuses (MCP-17, MCP-18). The request hyper
+/// sends carries that head and the same framing; this wrapper replaces hyper's head with it
+/// and passes the body through, counting it by the head's `content-length` to know where
+/// the next head starts. A head without the header, or with a `transfer-encoding`, is
+/// written as it is and the connection passes everything through from then on.
+struct RawHeadIo<S> {
+    inner: S,
+    /// The head hyper is writing, until its blank line.
+    head: Vec<u8>,
+    /// Bytes to write to `inner` before anything else, from `pending_at` on.
+    pending: Vec<u8>,
+    pending_at: usize,
+    /// Body bytes still to pass through before the next head.
+    body_left: u64,
+    passthrough: bool,
+}
+
+impl<S> RawHeadIo<S> {
+    #[cfg_attr(not(feature = "mcp"), allow(dead_code))]
+    fn new(inner: S) -> Self {
+        Self {
+            inner,
+            head: Vec::new(),
+            pending: Vec::new(),
+            pending_at: 0,
+            body_left: 0,
+            passthrough: false,
+        }
+    }
+}
+
+impl<S: tokio::io::AsyncWrite + Unpin> RawHeadIo<S> {
+    fn poll_pending(&mut self, cx: &mut Context<'_>) -> Poll<std::io::Result<()>> {
+        while self.pending_at < self.pending.len() {
+            let written = std::task::ready!(
+                Pin::new(&mut self.inner).poll_write(cx, &self.pending[self.pending_at..])
+            )?;
+            if written == 0 {
+                return Poll::Ready(Err(std::io::ErrorKind::WriteZero.into()));
+            }
+            self.pending_at += written;
+        }
+        self.pending.clear();
+        self.pending_at = 0;
+        Poll::Ready(Ok(()))
+    }
+}
+
+/// The head to write in place of `head` (a complete head, blank line included), and the
+/// length of the body that follows it: `None` when it is not known (`transfer-encoding`).
+pub(crate) fn rewrite_head(head: &[u8]) -> (Vec<u8>, Option<u64>) {
+    let marker = format!("\r\n{RAW_HEAD_HEADER}:");
+    let lower = head.to_ascii_lowercase();
+    let replacement = lower
+        .windows(marker.len())
+        .position(|w| w == marker.as_bytes())
+        .and_then(|at| {
+            let start = at + marker.len();
+            let end = start + head[start..].windows(2).position(|w| w == b"\r\n")?;
+            decode_hex(head[start..end].trim_ascii())
+        })
+        .unwrap_or_else(|| head.to_vec());
+    let mut length = Some(0);
+    for line in replacement.split(|&b| b == b'\n').skip(1) {
+        let line = line.strip_suffix(b"\r").unwrap_or(line);
+        let Some(colon) = line.iter().position(|&b| b == b':') else {
+            continue;
+        };
+        let (name, value) = (&line[..colon], line[colon + 1..].trim_ascii());
+        if name.eq_ignore_ascii_case(b"transfer-encoding") {
+            length = None;
+            break;
+        }
+        if name.eq_ignore_ascii_case(b"content-length") {
+            length = std::str::from_utf8(value).ok().and_then(|v| v.parse().ok());
+        }
+    }
+    (replacement, length)
+}
+
+fn decode_hex(text: &[u8]) -> Option<Vec<u8>> {
+    if !text.len().is_multiple_of(2) {
+        return None;
+    }
+    let digit = |b: u8| (b as char).to_digit(16).map(|d| d as u8);
+    text.chunks(2)
+        .map(|pair| Some(digit(pair[0])? << 4 | digit(pair[1])?))
+        .collect()
+}
+
+impl<S: tokio::io::AsyncRead + Unpin> tokio::io::AsyncRead for RawHeadIo<S> {
+    fn poll_read(
+        mut self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+        buf: &mut tokio::io::ReadBuf<'_>,
+    ) -> Poll<std::io::Result<()>> {
+        Pin::new(&mut self.inner).poll_read(cx, buf)
+    }
+}
+
+impl<S: tokio::io::AsyncWrite + Unpin> tokio::io::AsyncWrite for RawHeadIo<S> {
+    fn poll_write(
+        mut self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+        buf: &[u8],
+    ) -> Poll<std::io::Result<usize>> {
+        let this = &mut *self;
+        std::task::ready!(this.poll_pending(cx))?;
+        if this.passthrough {
+            return Pin::new(&mut this.inner).poll_write(cx, buf);
+        }
+        if this.body_left > 0 {
+            let n = buf
+                .len()
+                .min(usize::try_from(this.body_left).unwrap_or(usize::MAX));
+            let written = std::task::ready!(Pin::new(&mut this.inner).poll_write(cx, &buf[..n]))?;
+            this.body_left -= written as u64;
+            return Poll::Ready(Ok(written));
+        }
+        let start = this.head.len();
+        this.head.extend_from_slice(buf);
+        let from = start.saturating_sub(3);
+        let Some(end) = this.head[from..]
+            .windows(4)
+            .position(|w| w == b"\r\n\r\n")
+            .map(|at| from + at + 4)
+        else {
+            return Poll::Ready(Ok(buf.len()));
+        };
+        this.head.truncate(end);
+        let head = std::mem::take(&mut this.head);
+        let (replacement, length) = rewrite_head(&head);
+        this.pending = replacement;
+        this.pending_at = 0;
+        match length {
+            Some(length) => this.body_left = length,
+            None => this.passthrough = true,
+        }
+        if let Poll::Ready(Err(error)) = this.poll_pending(cx) {
+            return Poll::Ready(Err(error));
+        }
+        Poll::Ready(Ok(end - start))
+    }
+
+    fn poll_flush(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<std::io::Result<()>> {
+        std::task::ready!(self.poll_pending(cx))?;
+        Pin::new(&mut self.inner).poll_flush(cx)
+    }
+
+    fn poll_shutdown(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<std::io::Result<()>> {
+        std::task::ready!(self.poll_pending(cx))?;
+        Pin::new(&mut self.inner).poll_shutdown(cx)
+    }
 }
 
 /// A response body that holds its connection until it ends.
@@ -361,6 +544,53 @@ impl Drop for PooledBody {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn raw_heads_replace_hyper_heads() {
+        let raw =
+            "POST /a/{b}/ HTTP/1.1\r\nhost: h\r\nX-A: 1\r\nx-a: 2\r\ncontent-length: 3\r\n\r\n";
+        let hex: String = raw.bytes().map(|b| format!("{b:02x}")).collect();
+        let hyper = format!(
+            "POST / HTTP/1.1\r\nhost: h\r\nx-a: 1\r\nX-Rust-Gateway-Raw-Head: {hex}\r\ncontent-length: 3\r\n\r\n"
+        );
+        assert_eq!(
+            rewrite_head(hyper.as_bytes()),
+            (raw.as_bytes().to_vec(), Some(3))
+        );
+        let plain = b"GET / HTTP/1.1\r\nhost: h\r\n\r\n";
+        assert_eq!(rewrite_head(plain), (plain.to_vec(), Some(0)));
+        let chunked = b"POST / HTTP/1.1\r\ntransfer-encoding: chunked\r\n\r\n";
+        assert_eq!(rewrite_head(chunked).1, None);
+    }
+
+    #[tokio::test]
+    async fn raw_head_io_rewrites_each_head_and_passes_bodies() {
+        use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _};
+        let (client, mut server) = tokio::io::duplex(4096);
+        let mut io = RawHeadIo::new(client);
+        let head = |raw: &str| {
+            let hex: String = raw.bytes().map(|b| format!("{b:02x}")).collect();
+            format!("GET / HTTP/1.1\r\n{RAW_HEAD_HEADER}: {hex}\r\n\r\n")
+        };
+        let first = "PUT /{x} HTTP/1.1\r\nA: 1\r\ncontent-length: 4\r\n\r\n";
+        let second = "GET /y HTTP/1.1\r\nB: 2\r\n\r\n";
+        // Head and body in one write, then a head split over two writes.
+        let mut bytes = head(first).into_bytes();
+        bytes.extend_from_slice(b"body");
+        let mut at = 0;
+        while at < bytes.len() {
+            at += io.write(&bytes[at..]).await.unwrap();
+        }
+        let second_head = head(second);
+        let (a, b) = second_head.split_at(10);
+        io.write_all(a.as_bytes()).await.unwrap();
+        io.write_all(b.as_bytes()).await.unwrap();
+        io.flush().await.unwrap();
+        drop(io);
+        let mut out = String::new();
+        server.read_to_string(&mut out).await.unwrap();
+        assert_eq!(out, format!("{first}body{second}"));
+    }
 
     #[test]
     fn origins_are_parsed_like_undici() {
