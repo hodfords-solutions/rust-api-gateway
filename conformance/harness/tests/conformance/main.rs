@@ -14,3 +14,4 @@ mod pipeline;
 mod pool;
 mod rate_limit;
 mod routes;
+mod websocket;

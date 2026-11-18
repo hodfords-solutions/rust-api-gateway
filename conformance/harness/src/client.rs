@@ -145,6 +145,18 @@ impl RawConn {
         })
     }
 
+    /// A connection rebuilt from [`into_parts`](Self::into_parts): `buffered` are bytes
+    /// already read from `stream`.
+    pub fn from_parts(stream: TcpStream, buffered: Vec<u8>) -> Self {
+        let addr = stream
+            .peer_addr()
+            .unwrap_or_else(|_| SocketAddr::from(([0, 0, 0, 0], 0)));
+        Self {
+            addr,
+            reader: WireReader::with_buffered(stream, buffered),
+        }
+    }
+
     pub fn addr(&self) -> SocketAddr {
         self.addr
     }
@@ -213,6 +225,30 @@ impl RawConn {
     /// Returns the stream and any bytes already read past the last response.
     pub fn into_parts(self) -> (TcpStream, Vec<u8>) {
         self.reader.into_parts()
+    }
+
+    /// Reads one response head exactly as received, up to and including the empty line;
+    /// `None` when the connection closed first.
+    pub async fn read_head_raw(&mut self, timeout: Duration) -> Result<Option<Vec<u8>>> {
+        tokio::time::timeout(timeout, self.reader.read_head())
+            .await
+            .map_err(|_| anyhow!("no complete response head within {timeout:?}"))?
+            .map_err(Into::into)
+    }
+
+    /// Reads everything until the peer closes, failing after `timeout`.
+    pub async fn read_to_close(&mut self, timeout: Duration) -> Result<Vec<u8>> {
+        tokio::time::timeout(timeout, self.reader.read_to_eof())
+            .await
+            .map_err(|_| anyhow!("connection still open after {timeout:?}"))?
+            .map_err(Into::into)
+    }
+
+    /// The connection as a client WebSocket, after its 101 head was read; bytes already
+    /// read past the head are kept.
+    pub async fn into_websocket(self) -> WebSocketStream<TcpStream> {
+        let (stream, leftover) = self.reader.into_parts();
+        WebSocketStream::from_partially_read(stream, leftover, Role::Client, None).await
     }
 }
 
