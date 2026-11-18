@@ -1,0 +1,5 @@
+# Checklist IDs that rust-gateway-server implements.
+#
+# A scenario runs against the `rust` target only when every ID it covers is listed here;
+# otherwise it is skipped for that target (and still runs against `reference`).
+# Add an ID in the same commit that makes its scenarios pass. One ID per line.
