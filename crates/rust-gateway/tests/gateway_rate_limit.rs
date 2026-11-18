@@ -195,3 +195,80 @@ async fn req_20_rl_13_resolver_reads_what_middleware_attached() {
     assert_eq!(response.status(), 500);
     assert_eq!(response.text().await.unwrap(), INTERNAL);
 }
+
+/// Adds `Retry-After` (whole seconds, rounded up) to the default rendering when the gateway
+/// knows when the rejecting Bucket resets.
+struct RetryAfterRenderer;
+
+impl api_gateway::error::ErrorRenderer for RetryAfterRenderer {
+    fn render(&self, error: &api_gateway::error::GatewayError) -> http::Response<Vec<u8>> {
+        error.to_response()
+    }
+
+    fn render_with_context(
+        &self,
+        error: &api_gateway::error::GatewayError,
+        context: &api_gateway::error::ErrorContext,
+    ) -> http::Response<Vec<u8>> {
+        let mut response = self.render(error);
+        if let Some(seconds) = context.retry_after_seconds() {
+            response
+                .headers_mut()
+                .insert(http::header::RETRY_AFTER, seconds.into());
+        }
+        response
+    }
+}
+
+/// RL-25: on a 429 the error renderer learns how long until the full Bucket resets, and
+/// can send `Retry-After`; other errors carry no such value. The default renderer sends the
+/// reference's 429, with no `Retry-After` (RL-22).
+#[tokio::test]
+async fn rl_25_renderer_gets_the_retry_after() {
+    require_redis!();
+    let upstream = Upstream::start().await;
+    let mut gateway_options = limited(&upstream, rate_limit_common::redis_options(), 1);
+    gateway_options.rate_limit.global_ip = BucketLimit::new(1, 30.0);
+    let custom = serve(
+        Gateway::builder(gateway_options.clone()).error_renderer(RetryAfterRenderer),
+        true,
+    )
+    .await;
+    let default = serve(Gateway::builder(gateway_options), true).await;
+
+    for (served, expect_header) in [(&custom, true), (&default, false)] {
+        let address = format!("client-{}", nonce());
+        let send = || {
+            client()
+                .get(served.url("/svc/v1/users"))
+                .header("x-forwarded-for", address.clone())
+                .send()
+        };
+        assert_eq!(send().await.unwrap().status(), 200);
+        let rejected = send().await.unwrap();
+        assert_eq!(rejected.status(), 429);
+        let retry_after = rejected
+            .headers()
+            .get("retry-after")
+            .map(|v| v.to_str().unwrap().parse::<u64>().unwrap());
+        if expect_header {
+            let seconds = retry_after.expect("Retry-After");
+            assert!((29..=30).contains(&seconds), "{seconds}");
+        } else {
+            assert_eq!(retry_after, None);
+        }
+        assert_eq!(
+            rejected.text().await.unwrap(),
+            r#"{"message":"error.too_many_requests"}"#
+        );
+    }
+
+    // Not a rate-limit error: no retry-after.
+    let other = client()
+        .post(custom.url("/svc/v1/limited"))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(other.status(), 405);
+    assert!(!other.headers().contains_key("retry-after"));
+}

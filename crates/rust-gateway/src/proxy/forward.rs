@@ -8,7 +8,7 @@ use bytes::Bytes;
 use http::header::{self, HeaderName, HeaderValue};
 use http::{HeaderMap, Method, Request, Response, Uri};
 
-use crate::error::GatewayError;
+use crate::error::{ErrorContext, GatewayError};
 use crate::gateway::Shared;
 use crate::rate_limit::{RateLimitState, RateLimiter, RouteKey};
 use crate::request::{
@@ -215,7 +215,16 @@ fn client_span(
 /// `ETag`). The proxy's own 503 (FWD-22) is written like the reference writes it, without a
 /// length, so it is sent chunked.
 pub(crate) fn render_error(shared: &Shared, error: &GatewayError) -> Response<Body> {
-    let rendered = shared.renderer.render(error);
+    render_error_with(shared, error, &ErrorContext::new())
+}
+
+/// [`render_error`], telling the renderer `context` (RL-25).
+pub(crate) fn render_error_with(
+    shared: &Shared,
+    error: &GatewayError,
+    context: &ErrorContext,
+) -> Response<Body> {
+    let rendered = shared.renderer.render_with_context(error, context);
     let (mut parts, body) = rendered.into_parts();
     if !matches!(error, GatewayError::UpstreamUnavailable) {
         if !parts.headers.contains_key(header::CONTENT_LENGTH) {

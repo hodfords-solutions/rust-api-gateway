@@ -33,6 +33,28 @@ use super::bucket::CHECK_AND_COUNT;
 /// the 2 seconds D10 allows for the whole request.
 pub const REDIS_OPERATION_TIMEOUT: Duration = Duration::from_millis(1500);
 
+/// The outcome of a check-and-count.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Admission {
+    /// The request is admitted and counted.
+    Admitted,
+    /// The Bucket is full. `remaining` is the time left in its window, `None` when Redis
+    /// reports none.
+    Rejected { remaining: Option<Duration> },
+}
+
+/// A Bucket's count and the time left in its window (`None` without an open window).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct BucketCount {
+    pub(crate) count: u64,
+    pub(crate) remaining: Option<Duration>,
+}
+
+/// A `PTTL` reply as a duration: `None` for -1 (no expiry) and -2 (no key).
+fn remaining(pttl: i64) -> Option<Duration> {
+    u64::try_from(pttl).ok().map(Duration::from_millis)
+}
+
 /// How to reach Redis: the port of the reference's `RedisOptionType`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RedisOptions {
@@ -204,14 +226,14 @@ impl Store {
         })
     }
 
-    /// Runs the check-and-count script. `true` when the request is admitted.
+    /// Runs the check-and-count script.
     pub(crate) async fn check_and_count(
         &self,
         key: &str,
         limit: u64,
         window_ms: u64,
-    ) -> Result<bool, StoreError> {
-        let rejected: i64 = self
+    ) -> Result<Admission, StoreError> {
+        let reply: Vec<i64> = self
             .run(|mut connection| async move {
                 self.check_and_count
                     .key(key)
@@ -221,20 +243,32 @@ impl Store {
                     .await
             })
             .await?;
-        Ok(rejected == 0)
+        Ok(match reply.as_slice() {
+            [0, ..] | [] => Admission::Admitted,
+            [_, pttl, ..] => Admission::Rejected {
+                remaining: remaining(*pttl),
+            },
+            [_] => Admission::Rejected { remaining: None },
+        })
     }
 
-    /// The current count of a Bucket, 0 when it has no open window.
-    pub(crate) async fn count(&self, key: &str) -> Result<u64, StoreError> {
-        let count: Option<i64> = self
+    /// The current count of a Bucket, 0 when it has no open window, and the time left in
+    /// that window, read together in one round trip.
+    pub(crate) async fn count(&self, key: &str) -> Result<BucketCount, StoreError> {
+        let (count, pttl): (Option<i64>, i64) = self
             .run(|mut connection| async move {
-                redis::cmd("GET")
-                    .arg(key)
+                redis::pipe()
+                    .atomic()
+                    .get(key)
+                    .pttl(key)
                     .query_async(&mut connection)
                     .await
             })
             .await?;
-        Ok(count.map_or(0, |c| c.max(0) as u64))
+        Ok(BucketCount {
+            count: count.map_or(0, |c| c.max(0) as u64),
+            remaining: remaining(pttl),
+        })
     }
 
     /// Runs `operation` on the shared connection within [`REDIS_OPERATION_TIMEOUT`]. A

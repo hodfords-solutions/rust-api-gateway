@@ -14,7 +14,8 @@
 //! This module takes plain inputs (a [`RouteKey`], the Route's [`RouteLimit`]s, the resolved
 //! [`Identity`]) and does not depend on the request or Route types. The request pipeline
 //! calls its operations in the order below; a full Bucket yields
-//! [`RateLimitError::TooManyRequests`] (answer 429 with [`TooManyRequests::body`]), and any
+//! [`RateLimitError::TooManyRequests`] (answer 429 with [`TooManyRequests::body`]; the time
+//! until that Bucket resets is then on [`RateLimitState::retry_after`], RL-25), and any
 //! other error yields 500 (REQ-24). When [`RateLimiter::is_enabled`] is false every operation
 //! is a no-op, and the pipeline must not call the Identity resolver either (RL-01).
 //!

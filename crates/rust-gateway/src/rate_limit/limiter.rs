@@ -2,6 +2,7 @@
 
 use std::net::IpAddr;
 use std::sync::Arc;
+use std::time::Duration;
 
 use http::HeaderMap;
 
@@ -10,7 +11,7 @@ use super::client_address::{client_key, forwarded_for};
 use super::js;
 use super::options::{BucketLimit, OptionsError, RateLimitOptions, ValidatedOptions};
 use super::rejection::TooManyRequests;
-use super::store::{RedisConfigError, RedisOptions, Store, StoreError};
+use super::store::{Admission, BucketCount, RedisConfigError, RedisOptions, Store, StoreError};
 pub use crate::route::RouteLimit;
 
 /// Identifies a Route for its Route Buckets: the Upstream Service, the request method and
@@ -102,6 +103,7 @@ pub struct RateLimitState {
     global_ip_counted: bool,
     anonymous_ip_counted: bool,
     identity: Option<ResolvedIdentity>,
+    retry_after: Option<Duration>,
 }
 
 impl RateLimitState {
@@ -111,6 +113,7 @@ impl RateLimitState {
             global_ip_counted: false,
             anonymous_ip_counted: false,
             identity: None,
+            retry_after: None,
         }
     }
 
@@ -124,6 +127,28 @@ impl RateLimitState {
     /// authenticated (RL-11).
     pub fn default_identity(&self) -> Identity {
         Identity::anonymous(self.client_key.clone())
+    }
+
+    /// How long until the Bucket that rejected this request resets (RL-25), once an
+    /// operation has failed with [`RateLimitError::TooManyRequests`]; `None` before that.
+    ///
+    /// It is the time left in that Bucket's window, to the millisecond, read from Redis in
+    /// the same call that rejected the request, for every Bucket kind. It is also `None`
+    /// when the full Bucket has no open window: a status-scoped Route limit of 0 rejects
+    /// before any window was opened. The pipeline hands it to the error renderer as
+    /// [`ErrorContext::retry_after`](crate::error::ErrorContext::retry_after).
+    pub fn retry_after(&self) -> Option<Duration> {
+        self.retry_after
+    }
+
+    /// Records a rejection and returns it as an error.
+    fn reject(
+        &mut self,
+        rejection: TooManyRequests,
+        remaining: Option<Duration>,
+    ) -> RateLimitError {
+        self.retry_after = remaining;
+        rejection.into()
     }
 }
 
@@ -186,7 +211,7 @@ impl Backend {
         key: &str,
         limit: u64,
         window_ms: u64,
-    ) -> Result<bool, StoreError> {
+    ) -> Result<Admission, StoreError> {
         match self {
             Backend::Redis(store) => store.check_and_count(key, limit, window_ms).await,
             #[cfg(test)]
@@ -194,7 +219,7 @@ impl Backend {
         }
     }
 
-    async fn count(&self, key: &str) -> Result<u64, StoreError> {
+    async fn count(&self, key: &str) -> Result<BucketCount, StoreError> {
         match self {
             Backend::Redis(store) => store.count(key).await,
             #[cfg(test)]
@@ -257,13 +282,14 @@ impl RateLimiter {
         }
         state.global_ip_counted = true;
         let key = bucket::global_ip_key(&state.client_key);
-        if self
+        match self
             .check_and_count(&key, self.inner.options.global_ip)
             .await?
         {
-            Ok(())
-        } else {
-            Err(TooManyRequests::GlobalIp.into())
+            Admission::Admitted => Ok(()),
+            Admission::Rejected { remaining } => {
+                Err(state.reject(TooManyRequests::GlobalIp, remaining))
+            }
         }
     }
 
@@ -282,10 +308,11 @@ impl RateLimiter {
         }
         state.anonymous_ip_counted = true;
         let key = bucket::anonymous_ip_key(&state.client_key);
-        if self.check_and_count(&key, limit).await? {
-            Ok(())
-        } else {
-            Err(TooManyRequests::AnonymousIp.into())
+        match self.check_and_count(&key, limit).await? {
+            Admission::Admitted => Ok(()),
+            Admission::Rejected { remaining } => {
+                Err(state.reject(TooManyRequests::AnonymousIp, remaining))
+            }
         }
     }
 
@@ -329,25 +356,30 @@ impl RateLimiter {
         };
 
         let custom = bucket::custom_key(&identity);
-        if !self
+        if let Admission::Rejected { remaining } = self
             .check_and_count(&custom, self.inner.options.custom)
             .await?
         {
-            return Err(TooManyRequests::Custom.into());
+            return Err(state.reject(TooManyRequests::Custom, remaining));
         }
 
         for limit in limits {
             let status = effective_status(limit);
             let window = window_ms(limit.ttl);
             let key = bucket::route_key(&route, &identity, limit.limit, window, status);
-            let admitted = if status.is_some() {
-                self.inner.store.count(&key).await? < limit.limit
+            let admission = if status.is_some() {
+                let BucketCount { count, remaining } = self.inner.store.count(&key).await?;
+                if count < limit.limit {
+                    Admission::Admitted
+                } else {
+                    Admission::Rejected { remaining }
+                }
             } else {
                 self.check_and_count(&key, BucketLimit::new(limit.limit, limit.ttl))
                     .await?
             };
-            if !admitted {
-                return Err(TooManyRequests::Route { ttl: limit.ttl }.into());
+            if let Admission::Rejected { remaining } = admission {
+                return Err(state.reject(TooManyRequests::Route { ttl: limit.ttl }, remaining));
             }
         }
         Ok(())
@@ -390,7 +422,11 @@ impl RateLimiter {
         Ok(())
     }
 
-    async fn check_and_count(&self, key: &str, limit: BucketLimit) -> Result<bool, RateLimitError> {
+    async fn check_and_count(
+        &self,
+        key: &str,
+        limit: BucketLimit,
+    ) -> Result<Admission, RateLimitError> {
         let window =
             window_ms(limit.ttl).ok_or(RateLimitError::InvalidWindow { ttl: limit.ttl })?;
         Ok(self
@@ -408,6 +444,9 @@ pub(crate) mod memory {
 
     use std::collections::HashMap;
     use std::sync::{Arc, Mutex};
+    use std::time::{Duration, Instant};
+
+    use crate::rate_limit::store::{Admission, BucketCount};
 
     #[derive(Debug, Clone, Default)]
     pub(crate) struct MemoryStore {
@@ -417,7 +456,17 @@ pub(crate) mod memory {
     #[derive(Debug, Default)]
     struct State {
         counts: HashMap<String, u64>,
+        /// When each Bucket's window opened, and its length.
+        windows: HashMap<String, (Instant, Duration)>,
         calls: Vec<String>,
+    }
+
+    impl State {
+        fn remaining(&self, key: &str) -> Option<Duration> {
+            self.windows
+                .get(key)
+                .map(|(opened, window)| window.saturating_sub(opened.elapsed()))
+        }
     }
 
     impl MemoryStore {
@@ -425,22 +474,34 @@ pub(crate) mod memory {
             self.state.lock().unwrap_or_else(|e| e.into_inner())
         }
 
-        /// Windows never expire here; expiry is covered by the Redis tests.
-        pub(crate) fn check_and_count(&self, key: &str, limit: u64, _window_ms: u64) -> bool {
+        /// Windows never expire here; expiry is covered by the Redis tests. The time left
+        /// in a window is counted down from when it opened, as Redis's `PTTL` does.
+        pub(crate) fn check_and_count(&self, key: &str, limit: u64, window_ms: u64) -> Admission {
             let mut state = self.lock();
             state.calls.push(format!("count {key}"));
             let current = state.counts.get(key).copied().unwrap_or(0);
             if current > 0 && current >= limit {
-                return false;
+                return Admission::Rejected {
+                    remaining: state.remaining(key),
+                };
+            }
+            if current == 0 {
+                state.windows.insert(
+                    key.to_owned(),
+                    (Instant::now(), Duration::from_millis(window_ms)),
+                );
             }
             state.counts.insert(key.to_owned(), current + 1);
-            true
+            Admission::Admitted
         }
 
-        pub(crate) fn count(&self, key: &str) -> u64 {
+        pub(crate) fn count(&self, key: &str) -> BucketCount {
             let mut state = self.lock();
             state.calls.push(format!("get {key}"));
-            state.counts.get(key).copied().unwrap_or(0)
+            BucketCount {
+                count: state.counts.get(key).copied().unwrap_or(0),
+                remaining: state.remaining(key),
+            }
         }
 
         /// The count of the Bucket with this key, `None` if it was never opened.
