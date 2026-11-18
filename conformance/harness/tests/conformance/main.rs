@@ -4,6 +4,7 @@
 //! `docs/development.md`.
 
 mod common;
+mod connections;
 mod deviations;
 mod documents;
 mod errors;

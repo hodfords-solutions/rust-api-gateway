@@ -12,9 +12,11 @@ Redis and follows the usual convention: `SKIP` without it, a failure under
 ## How findings are handled
 
 The gateway's behaviour is pinned to the Reference Gateway by the Parity Checklist, so a
-weakness is **not fixed here**. Its test asserts the safe behaviour and is marked
-`#[ignore = "security finding SEC-NN: …"]`; each fix must be approved individually as a
-Deviation (`docs/parity/README.md`), and the fix un-ignores the test. Run the findings with:
+weakness the reference shares is **not fixed here**. Its test asserts the safe behaviour and
+is marked `#[ignore = "security finding SEC-NN: …"]`; each fix must be approved individually
+as a Deviation (`docs/parity/README.md`), and the fix un-ignores the test. A weakness only
+this gateway has is a parity gap and is fixed like one, with Parity Checklist rows and a
+Conformance Test (SEC-02 and SEC-03, see [Fixed](#fixed)). Run the open findings with:
 
 ```bash
 cargo test -p api-gateway --no-fail-fast --test 'security_*' -- --ignored
@@ -29,8 +31,6 @@ defaults; the reference was not run for these tests.
 | ID | Severity | Area | Summary | Reference |
 |---|---|---|---|---|
 | SEC-01 | High | WebSocket | Upgrade requests bypass Route matching, proxy middleware and rate limiting | Same |
-| SEC-02 | Medium | Limits | No timeout for a slow request head or body (slowloris) | Differs: Node bounds both |
-| SEC-03 | Medium | Limits | Idle keep-alive connections are never closed | Differs: Node closes after 5 s |
 | SEC-04 | Medium | Paths | Encoded traversal under a Bypass prefix or Static Request is forwarded raw | Same |
 | SEC-05 | Medium | Headers | The underscore spelling of an excluded identity header is forwarded | Likely same |
 | SEC-06 | Low | Headers | Spoofed `X-Real-IP`, `X-Forwarded-Host`, `X-Forwarded-Proto`, `Forwarded` reach the upstream | Same |
@@ -60,38 +60,6 @@ defaults; the reference was not run for these tests.
   Service or a Direct Prefix are exposed directly; whether the upstream answers a non-WebSocket
   upgrade normally depends on its framework (most do).
 - **Reference:** same (WS-01, WS-04, WS-07, WS-15 pin this behaviour).
-
-### SEC-02: no timeout for a slow request head or body
-
-- **Tests:** `security_limits::sec_02_slow_request_heads_time_out`,
-  `security_limits::sec_02_slow_request_bodies_time_out`.
-- **Reproduction:** open a connection, send `GET /svc/v1/users HTTP/1.1\r\nHost: gw\r\n`, then
-  one byte every 300 ms; or send a `POST` head with `Content-Length: 100000` and trickle the
-  body.
-- **Observed:** the connection stays open as long as the client keeps sending. hyper's server
-  connection is built without a timer, so no header read timeout applies, and nothing bounds a
-  whole request. A head ending lines with bare LF is also held unanswered until the client
-  leaves (`security_headers::bare_lf_line_endings_are_not_forwarded`), because the gateway's
-  framing tracker waits for `\r\n\r\n`.
-- **Safe:** a head (and a whole request) that does not complete within a bounded time is
-  answered with 408 or closed. The tests use a 5 s bound (`BOUND` in `security_limits.rs`) as a
-  placeholder for the timeout the Deviation chooses.
-- **Severity: medium.** A few clients holding many slow connections exhaust the gateway's
-  connections and file descriptors (slowloris); a slow body also holds an upstream connection.
-- **Reference:** differs. Node bounds a request head with `headersTimeout` (60 s) and a whole
-  request with `requestTimeout` (300 s); the reference app sets neither, so the defaults apply.
-
-### SEC-03: idle keep-alive connections are never closed
-
-- **Test:** `security_limits::sec_03_idle_keep_alive_connections_are_closed`.
-- **Reproduction:** send one request on a keep-alive connection, read the response (it carries
-  `Keep-Alive: timeout=5`), then send nothing.
-- **Observed:** the connection is still open after the announced 5 s (and indefinitely).
-- **Safe:** the connection is closed after the announced timeout.
-- **Severity: medium.** Idle connections accumulate without limit; unlike SEC-02 the client
-  need not send anything after its first request.
-- **Reference:** differs. Node closes an idle connection after `keepAliveTimeout` (5 s), the
-  value the gateway announces.
 
 ### SEC-04: encoded traversal under a Bypass prefix or Static Request is forwarded raw
 
@@ -189,7 +157,8 @@ defaults; the reference was not run for these tests.
 
 - `control_characters_in_header_lines_are_rejected`: bare CR, NUL, obs-fold, a line without a
   colon, a leading space and a space before the colon are 400.
-- `bare_lf_line_endings_are_not_forwarded` (but see SEC-02).
+- `bare_lf_line_endings_are_not_forwarded` (it is not answered either; REQ-28 closes it with
+  a 408 after `headersTimeout`).
 - `encoded_crlf_never_reaches_the_upstream_decoded`; `middleware_header_values_with_line_breaks_are_refused` (503).
 - `hop_by_hop_headers_are_not_forwarded`: the FWD-06 list, in any letter case.
 - `ambiguous_framing_cannot_smuggle_a_request`: `Content-Length` with `Transfer-Encoding`,
@@ -217,6 +186,7 @@ defaults; the reference was not run for these tests.
 - `large_request_bodies_are_streamed_not_buffered`: a declared 100 MiB body is forwarded as it
   arrives.
 - `overflowing_chunk_sizes_fail_the_request_only`.
+- The SEC-02 and SEC-03 tests below.
 
 **WebSocket** (`security_websocket.rs`)
 
@@ -242,6 +212,33 @@ defaults; the reference was not run for these tests.
   arrive percent-encoded, the type is `application/json`.
 
 Every error response checked carries no `Server` or `X-Powered-By` header.
+
+### Fixed
+
+Weaknesses only this gateway had: the Reference Gateway, on Node, was already safe. They were
+fixed as parity gaps (REQ-28, REQ-29; configurable through `GatewayOptions::server_timeouts`,
+CFG-20, with Node's defaults) and are covered by Conformance Tests
+(`connections::req_28_request_timeouts`, `connections::req_29_keep_alive_timeout`).
+
+- **SEC-02 (was medium): no timeout for a slow request head or body (slowloris).** A client
+  that sent its head a byte at a time, or trickled its body, held the connection (and, for a
+  body, an upstream connection) for as long as it kept sending, because hyper's server
+  connection had no timer and nothing bounded a request. Now, as in Node, a head not complete
+  `headersTimeout` (60 s) after its first byte, or a request not complete `requestTimeout`
+  (300 s) after it, is answered `HTTP/1.1 408 Request Timeout` with `Connection: close` and the
+  connection is closed; a connection that sends nothing counts from its start. Tests
+  (`security_limits.rs`, with timeouts of 0.4 s and 0.8 s):
+  `sec_02_slow_request_heads_are_answered_408_and_closed`,
+  `a_connection_that_sends_nothing_is_answered_408_and_closed`,
+  `sec_02_slow_request_bodies_are_answered_408_and_closed`, and that the fix does not cut
+  anything short: `a_slow_upstream_answer_is_not_cut_short`,
+  `websocket_tunnels_never_time_out`.
+- **SEC-03 (was medium): idle keep-alive connections were never closed**, although every
+  response announced `Keep-Alive: timeout=5`, so idle clients accumulated connections and file
+  descriptors without limit. Now, as in Node, a connection inactive for `keepAliveTimeout` (5 s,
+  the announced value) plus `keepAliveTimeoutBuffer` (1 s) after a response is closed without a
+  response. Test: `security_limits::sec_03_idle_keep_alive_connections_are_closed` (a 1 s
+  timeout, a request reusing the connection before it, then the close).
 
 ## Observations (not findings)
 

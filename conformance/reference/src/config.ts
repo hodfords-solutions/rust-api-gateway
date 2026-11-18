@@ -58,6 +58,17 @@ export type ConformanceConfig = {
         parameterFilter?: McpParameterFilterSpec;
         toolName?: string;
     };
+    /**
+     * Harness field: the host application's `http.Server` timeouts, in milliseconds.
+     * Absent fields keep Node's defaults.
+     */
+    server?: {
+        headersTimeout?: number;
+        requestTimeout?: number;
+        keepAliveTimeout?: number;
+        keepAliveTimeoutBuffer?: number;
+        connectionsCheckingInterval?: number;
+    };
 };
 
 function loadConfig(): ConformanceConfig {
