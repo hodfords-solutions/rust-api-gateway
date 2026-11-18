@@ -35,6 +35,12 @@ async fn d1_rejected_upgrade_hangs() {
                     "no Upstream Service",
                     client::upgrade_request("/nowhere/socket"),
                 ),
+                // The method check of WS-06 runs after the middleware: a rejected POST
+                // upgrade hangs instead of being closed.
+                (
+                    "middleware denies a POST upgrade",
+                    post_upgrade().header("x-test-middleware", "deny"),
+                ),
             ] {
                 let mut conn = RawConn::connect(gw.addr()).await?;
                 conn.send(&request).await?;
@@ -50,6 +56,12 @@ async fn d1_rejected_upgrade_hangs() {
         },
     )
     .await;
+}
+
+fn post_upgrade() -> Request {
+    let mut request = client::upgrade_request("/svc/socket");
+    request.method = "POST".into();
+    request
 }
 
 /// D2 (RL-17): all limits of a Route share one counter, and so do same-pattern Routes of

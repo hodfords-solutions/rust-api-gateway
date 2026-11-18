@@ -12,6 +12,14 @@
 //!   is not streamed, `Date`, `Connection` and `Keep-Alive`, and `Transfer-Encoding: chunked`
 //!   when there is no length.
 //! - Request targets as Node's parser accepts them ([`inbound`]).
+//! - WebSocket upgrades (area 06), when the gateway serves itself
+//!   ([`Gateway::serve`](crate::Gateway::serve)): an upgrade request never reaches hyper or
+//!   the router (WS-01). Its head is held back on the way in; hyper finishes whatever it is
+//!   doing on the connection and is shut down gracefully; the raw connection is taken back
+//!   from it ([`hyper::server::conn::http1::Connection::into_parts`]) and handed to the
+//!   WebSocket proxy, which writes every byte the client receives itself. That is how a
+//!   connection can be closed with no response (WS-06, WS-16) or answered with a bare
+//!   status line (WS-15), which no handler behind hyper can do.
 
 use std::future::Future;
 use std::io;
@@ -30,17 +38,20 @@ use http::{Extensions, HeaderMap, Method, Request, Response, StatusCode, Version
 use http_body::Body as _;
 use hyper::body::Incoming;
 use hyper_util::rt::TokioIo;
-use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
+use tokio::io::{AsyncRead, AsyncWrite, AsyncWriteExt as _, ReadBuf};
 use tokio::net::{TcpListener, TcpStream};
-use tokio::sync::watch;
+use tokio::sync::{Notify, watch};
 use tokio::task::JoinSet;
 use tower::ServiceExt as _;
 
 use crate::error::GatewayError;
 
 mod inbound;
+mod upgrade;
 use crate::gateway::Shared;
 use crate::request::{X_POWERED_BY, malformed_path_segment};
+pub(crate) use inbound::rewrite_target;
+pub(crate) use upgrade::{Takeover, UpgradeHead};
 
 /// Binds a listener on every address, IPv6 and IPv4 alike, like Node's `listen(port)`:
 /// `[::]:port` with IPv4-mapped addresses enabled, and Node's backlog of 511. Falls back to
@@ -74,6 +85,26 @@ pub async fn serve(
     listener: TcpListener,
     shutdown: impl Future<Output = ()> + Send,
 ) -> io::Result<()> {
+    serve_with(router, None, listener, shutdown).await
+}
+
+/// [`serve`], with WebSocket upgrades proxied by `gateway` (see the [module docs](self)).
+/// On shutdown, open tunnels are closed.
+pub(crate) async fn serve_gateway(
+    router: Router,
+    gateway: Arc<Shared>,
+    listener: TcpListener,
+    shutdown: impl Future<Output = ()> + Send,
+) -> io::Result<()> {
+    serve_with(router, Some(gateway), listener, shutdown).await
+}
+
+async fn serve_with(
+    router: Router,
+    gateway: Option<Arc<Shared>>,
+    listener: TcpListener,
+    shutdown: impl Future<Output = ()> + Send,
+) -> io::Result<()> {
     let (stop_tx, stop_rx) = watch::channel(false);
     let mut connections = JoinSet::new();
     tokio::pin!(shutdown);
@@ -92,12 +123,21 @@ pub async fn serve(
             }
         };
         let _ = stream.set_nodelay(true);
-        connections.spawn(serve_connection(
-            router.clone(),
-            stream,
-            peer,
-            stop_rx.clone(),
-        ));
+        match &gateway {
+            Some(gateway) => connections.spawn(serve_gateway_connection(
+                router.clone(),
+                Arc::clone(gateway),
+                stream,
+                peer,
+                stop_rx.clone(),
+            )),
+            None => connections.spawn(serve_connection(
+                router.clone(),
+                stream,
+                peer,
+                stop_rx.clone(),
+            )),
+        };
         while connections.try_join_next().is_some() {}
     }
     drop(listener);
@@ -119,13 +159,9 @@ async fn serve_connection(
         inbound: inbound::Inbound::default(),
         ready: bytes::BytesMut::new(),
         eof: false,
+        takeover: None,
     };
-    let service = hyper::service::service_fn(move |mut request: Request<Incoming>| {
-        request.extensions_mut().insert(ConnectInfo(peer));
-        request.extensions_mut().insert(interim.clone());
-        let router = router.clone();
-        async move { router.oneshot(request.map(Body::new)).await }
-    });
+    let service = router_service(router, peer, interim);
     let connection = hyper::server::conn::http1::Builder::new()
         .auto_date_header(false)
         .serve_connection(TokioIo::new(io), service)
@@ -149,6 +185,94 @@ async fn serve_connection(
             }
         }
     }
+}
+
+type BoxedResponse =
+    Pin<Box<dyn Future<Output = Result<Response<Body>, std::convert::Infallible>> + Send>>;
+
+/// The hyper service for one connection: the router, with the client address and the
+/// connection's [`Interim`] in each request's extensions.
+fn router_service(
+    router: Router,
+    peer: SocketAddr,
+    interim: Interim,
+) -> impl hyper::service::Service<
+    Request<Incoming>,
+    Response = Response<Body>,
+    Error = std::convert::Infallible,
+    Future = BoxedResponse,
+> + Unpin {
+    hyper::service::service_fn(move |mut request: Request<Incoming>| -> BoxedResponse {
+        request.extensions_mut().insert(ConnectInfo(peer));
+        request.extensions_mut().insert(interim.clone());
+        let router = router.clone();
+        Box::pin(async move { router.oneshot(request.map(Body::new)).await })
+    })
+}
+
+/// A connection of a gateway that proxies WebSocket upgrades itself: served by hyper until
+/// an upgrade request arrives, then taken over (see the [module docs](self)).
+async fn serve_gateway_connection(
+    router: Router,
+    gateway: Arc<Shared>,
+    stream: TcpStream,
+    peer: SocketAddr,
+    mut stop: watch::Receiver<bool>,
+) {
+    let interim = Interim::default();
+    let takeover = Arc::new(Notify::new());
+    let io = ConnIo {
+        inner: stream,
+        interim: interim.clone(),
+        inbound: inbound::Inbound::holding_upgrades(),
+        ready: bytes::BytesMut::new(),
+        eof: false,
+        takeover: Some(Arc::clone(&takeover)),
+    };
+    let mut connection = hyper::server::conn::http1::Builder::new()
+        .auto_date_header(false)
+        .serve_connection(TokioIo::new(io), router_service(router, peer, interim));
+    let mut stopping = false;
+    let result = loop {
+        tokio::select! {
+            result = std::future::poll_fn(|cx| connection.poll_without_shutdown(cx)) => {
+                break result;
+            }
+            () = takeover.notified() => Pin::new(&mut connection).graceful_shutdown(),
+            _ = stop.changed(), if !stopping => {
+                // The server is stopping (or gone): finish the current request, take
+                // nothing over.
+                stopping = true;
+                Pin::new(&mut connection).graceful_shutdown();
+            }
+        }
+    };
+    let parts = connection.into_parts();
+    let mut io = parts.io.into_inner();
+    let held = match result {
+        Ok(()) if !stopping => io.inbound.take_held(),
+        Ok(()) => None,
+        Err(error) => {
+            tracing::debug!(%error, "client connection ended with an error");
+            None
+        }
+    };
+    let Some(held) = held else {
+        // What hyper would have done at the end of the connection.
+        let _ = io.inner.shutdown().await;
+        return;
+    };
+    if !parts.read_buf.is_empty() || !io.ready.is_empty() {
+        // hyper consumes whole requests only, and nothing after an upgrade head reaches it.
+        tracing::debug!("bytes left before an upgrade request; closing the connection");
+        return;
+    }
+    let takeover = Takeover {
+        head: held.head,
+        stream: io.inner,
+        early: held.early.freeze(),
+    };
+    crate::proxy::websocket::handle(&gateway, takeover, peer, stop).await;
 }
 
 /// Bytes to write on a connection before the next response: Node's immediate
@@ -176,6 +300,8 @@ struct ConnIo {
     /// Rewritten bytes not yet handed to hyper.
     ready: bytes::BytesMut,
     eof: bool,
+    /// Signalled when an upgrade head is held back and the connection must be taken over.
+    takeover: Option<Arc<Notify>>,
 }
 
 impl ConnIo {
@@ -216,6 +342,14 @@ impl AsyncRead for ConnIo {
             }
             if this.eof {
                 return Poll::Ready(Ok(()));
+            }
+            if this.inbound.is_holding() {
+                // Nothing more for hyper: the server shuts it down and takes over. No waker
+                // is kept; the server polls the connection again after shutting it down.
+                if let Some(takeover) = &this.takeover {
+                    takeover.notify_one();
+                }
+                return Poll::Pending;
             }
             let mut received = [0u8; 16 * 1024];
             let mut received = ReadBuf::new(&mut received);

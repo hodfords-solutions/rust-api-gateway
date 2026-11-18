@@ -108,6 +108,14 @@ impl<S: AsyncRead + Unpin> WireReader<S> {
         }
     }
 
+    /// A reader whose buffer already holds `buffered`, read earlier from `stream`.
+    pub fn with_buffered(stream: S, buffered: Vec<u8>) -> Self {
+        Self {
+            stream,
+            buf: buffered,
+        }
+    }
+
     pub fn get_mut(&mut self) -> &mut S {
         &mut self.stream
     }

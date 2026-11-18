@@ -11,10 +11,16 @@
 //! To find request heads in the byte stream, the request framing is followed: a head ends at
 //! an empty line, its body is `Content-Length` bytes or chunked. After an upgrade or
 //! `CONNECT`, or anything that cannot be followed, bytes pass through untouched.
+//!
+//! When the server proxies WebSocket upgrades itself (area 06), an upgrade request head
+//! ([`UpgradeHead`]) is not handed to hyper at all: it is held, with every byte after it,
+//! until the server takes the connection over.
 
 use std::sync::OnceLock;
 
 use bytes::BytesMut;
+
+use super::upgrade::{Held, UpgradeHead};
 
 /// The longest request head that is rewritten; a longer one passes through untouched
 /// (hyper rejects heads above its own limit anyway).
@@ -30,6 +36,8 @@ enum State {
     Chunked(Chunk),
     /// No more rewriting on this connection.
     Opaque,
+    /// An upgrade head was held back: nothing more is handed to hyper.
+    Held,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -50,6 +58,10 @@ pub(crate) struct Inbound {
     pending: BytesMut,
     /// The current line inside a chunked body (size line or trailer).
     line: Vec<u8>,
+    /// Whether upgrade heads are held back instead of handed to hyper.
+    hold_upgrades: bool,
+    /// The upgrade head held back.
+    held: Option<UpgradeHead>,
 }
 
 impl Default for Inbound {
@@ -58,11 +70,35 @@ impl Default for Inbound {
             state: State::Head,
             pending: BytesMut::new(),
             line: Vec::new(),
+            hold_upgrades: false,
+            held: None,
         }
     }
 }
 
 impl Inbound {
+    /// An inbound stream that holds back upgrade heads (see the [module docs](self)).
+    pub(crate) fn holding_upgrades() -> Self {
+        Self {
+            hold_upgrades: true,
+            ..Self::default()
+        }
+    }
+
+    /// Whether an upgrade head is held back.
+    pub(crate) fn is_holding(&self) -> bool {
+        self.state == State::Held
+    }
+
+    /// The upgrade head held back, and every byte received after it.
+    pub(crate) fn take_held(&mut self) -> Option<Held> {
+        let head = self.held.take()?;
+        Some(Held {
+            head,
+            early: self.pending.split(),
+        })
+    }
+
     /// Feeds received bytes; returns the bytes to hand to hyper (possibly none yet, when a
     /// head is incomplete).
     pub(crate) fn feed(&mut self, received: &[u8], out: &mut BytesMut) {
@@ -72,6 +108,7 @@ impl Inbound {
                 return;
             }
             match self.state {
+                State::Held => return,
                 State::Opaque => {
                     out.extend_from_slice(&self.pending.split());
                     return;
@@ -100,7 +137,9 @@ impl Inbound {
 
     /// The connection ended: whatever is left goes to hyper as it is.
     pub(crate) fn finish(&mut self, out: &mut BytesMut) {
-        out.extend_from_slice(&self.pending.split());
+        if self.state != State::Held {
+            out.extend_from_slice(&self.pending.split());
+        }
     }
 
     /// Processes one request head if it is complete. Returns false when more bytes are
@@ -113,6 +152,14 @@ impl Inbound {
             }
             return false;
         };
+        if self.hold_upgrades
+            && let Some(upgrade) = UpgradeHead::parse(&self.pending[..end + 4])
+        {
+            let _ = self.pending.split_to(end + 4);
+            self.held = Some(upgrade);
+            self.state = State::Held;
+            return true;
+        }
         let head = self.pending.split_to(end + 4);
         let (rewritten, next) = rewrite_head(&head);
         out.extend_from_slice(&rewritten);
@@ -280,7 +327,7 @@ fn rewrite_head(head: &[u8]) -> (Vec<u8>, State) {
 
 /// Percent-encodes what the `http` crate rejects; replaces bytes above `0x7e` with a
 /// control character so that the request is rejected with 400.
-fn rewrite_target(target: &[u8]) -> Vec<u8> {
+pub(crate) fn rewrite_target(target: &[u8]) -> Vec<u8> {
     let (path, query) = rejected();
     let mut out = Vec::with_capacity(target.len());
     let mut in_query = false;
@@ -338,6 +385,30 @@ mod tests {
             String::from_utf8(run(input)).unwrap(),
             "POST /a HTTP/1.1\r\nContent-Length: 21\r\n\r\nGET /<x> HTTP/1.1\r\n\r\nGET /%3Cy%3E HTTP/1.1\r\nTransfer-Encoding: chunked\r\n\r\n5\r\n<z>\r\n\r\n0\r\nX-T: 1\r\n\r\nGET /%3Cw%3E HTTP/1.1\r\n\r\n"
         );
+    }
+
+    #[test]
+    fn upgrade_heads_are_held_with_what_follows() {
+        let mut inbound = Inbound::holding_upgrades();
+        let mut out = BytesMut::new();
+        inbound.feed(
+            b"GET /a HTTP/1.1\r\n\r\nGET /ws HTTP/1.1\r\nUpgrade: websocket\r\nConnection: Upgrade\r\n\r\nearly",
+            &mut out,
+        );
+        inbound.feed(b" bytes", &mut out);
+        inbound.finish(&mut out);
+        assert_eq!(&out[..], b"GET /a HTTP/1.1\r\n\r\n");
+        assert!(inbound.is_holding());
+        let held = inbound.take_held().expect("held");
+        assert_eq!(held.head.target, "/ws");
+        assert_eq!(&held.early[..], b"early bytes");
+
+        // Without holding, and for heads that are not upgrades, nothing changes.
+        let mut inbound = Inbound::holding_upgrades();
+        let mut out = BytesMut::new();
+        inbound.feed(b"GET /<x> HTTP/1.1\r\nUpgrade: h2c\r\n\r\n", &mut out);
+        assert!(!inbound.is_holding());
+        assert_eq!(&out[..], b"GET /%3Cx%3E HTTP/1.1\r\nUpgrade: h2c\r\n\r\n");
     }
 
     #[test]

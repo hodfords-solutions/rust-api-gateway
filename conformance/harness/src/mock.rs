@@ -145,6 +145,12 @@ pub enum Behaviour {
     /// Accepts a WebSocket upgrade, sends this text frame in the same write as the 101
     /// response, then echoes.
     WebSocketSpeakFirst(String),
+    /// Accepts a WebSocket upgrade with this reason phrase and these extra 101 header
+    /// lines (written after the mock's own, in order, repeats kept), then echoes.
+    WebSocketWithHead {
+        reason: String,
+        headers: Headers,
+    },
     /// Answers an upgrade request without upgrading, then closes.
     RejectUpgrade {
         status: u16,
@@ -176,6 +182,8 @@ struct State {
     recorded_changed: Notify,
     connections: AtomicU64,
     document_fetches: AtomicU64,
+    websockets_ended: AtomicU64,
+    websockets_changed: Notify,
     tasks: Mutex<Vec<AbortHandle>>,
 }
 
@@ -204,6 +212,8 @@ impl MockUpstream {
             recorded_changed: Notify::new(),
             connections: AtomicU64::new(0),
             document_fetches: AtomicU64::new(0),
+            websockets_ended: AtomicU64::new(0),
+            websockets_changed: Notify::new(),
             tasks: Mutex::new(Vec::new()),
         });
         let accept_state = state.clone();
@@ -302,6 +312,30 @@ impl MockUpstream {
     pub fn connections(&self) -> u64 {
         self.state.connections.load(Ordering::SeqCst)
     }
+
+    /// Number of WebSocket sessions that ended: the peer closed the connection or sent a
+    /// Close frame, and the mock closed its side.
+    pub fn websockets_ended(&self) -> u64 {
+        self.state.websockets_ended.load(Ordering::SeqCst)
+    }
+
+    /// Waits until at least `count` WebSocket sessions ended.
+    pub async fn wait_for_websockets_ended(&self, count: u64, timeout: Duration) -> Result<()> {
+        let deadline = tokio::time::Instant::now() + timeout;
+        loop {
+            let notified = self.state.websockets_changed.notified();
+            let current = self.websockets_ended();
+            if current >= count {
+                return Ok(());
+            }
+            if tokio::time::timeout_at(deadline, notified).await.is_err() {
+                bail!(
+                    "mock upstream {}: expected {count} ended WebSocket sessions, got {current}",
+                    self.addr
+                );
+            }
+        }
+    }
 }
 
 impl Drop for MockUpstream {
@@ -376,9 +410,18 @@ async fn serve_connection(stream: TcpStream, id: u64, state: Arc<State>) -> Resu
 
         let behaviour = choose(&state, &path);
         match behaviour {
-            Behaviour::WebSocketEcho => return websocket(reader, &recorded, None).await,
+            Behaviour::WebSocketEcho => {
+                return websocket(reader, &recorded, &state, WsHead::default(), None).await;
+            }
             Behaviour::WebSocketSpeakFirst(text) => {
-                return websocket(reader, &recorded, Some(text)).await;
+                return websocket(reader, &recorded, &state, WsHead::default(), Some(text)).await;
+            }
+            Behaviour::WebSocketWithHead { reason, headers } => {
+                let head = WsHead {
+                    reason: Some(reason),
+                    headers,
+                };
+                return websocket(reader, &recorded, &state, head, None).await;
             }
             _ => {}
         }
@@ -494,7 +537,9 @@ async fn run_behaviour(
                 return Ok(After::Close);
             }
             // Handled by `serve_connection`, which owns the connection.
-            Behaviour::WebSocketEcho | Behaviour::WebSocketSpeakFirst(_) => {
+            Behaviour::WebSocketEcho
+            | Behaviour::WebSocketSpeakFirst(_)
+            | Behaviour::WebSocketWithHead { .. } => {
                 return Ok(After::Close);
             }
         }
@@ -550,19 +595,33 @@ async fn write_reply(stream: &mut TcpStream, reply: &Reply, is_head: bool) -> Re
     Ok(())
 }
 
+/// The 101 response's reason phrase and extra header lines.
+#[derive(Default)]
+struct WsHead {
+    reason: Option<String>,
+    headers: Headers,
+}
+
 async fn websocket(
     mut reader: WireReader<TcpStream>,
     request: &RecordedRequest,
+    state: &State,
+    head: WsHead,
     first: Option<String>,
 ) -> Result<()> {
     let key = request
         .header("sec-websocket-key")
         .context("upgrade request without sec-websocket-key")?;
-    let mut out = format!(
-        "HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: {}\r\nx-mock-upstream: ws\r\n\r\n",
+    let mut text = format!(
+        "HTTP/1.1 101 {}\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: {}\r\nx-mock-upstream: ws\r\n",
+        head.reason.as_deref().unwrap_or("Switching Protocols"),
         derive_accept_key(key.as_bytes())
-    )
-    .into_bytes();
+    );
+    for (name, value) in &head.headers {
+        text.push_str(&format!("{name}: {value}\r\n"));
+    }
+    text.push_str("\r\n");
+    let mut out = text.into_bytes();
     if let Some(text) = &first {
         out.extend_from_slice(&text_frame(text));
     }
@@ -571,14 +630,21 @@ async fn websocket(
     // Keep any bytes the client sent along with its handshake.
     let (stream, leftover) = reader.into_parts();
     let mut ws = WebSocketStream::from_partially_read(stream, leftover, Role::Server, None).await;
-    while let Some(message) = ws.next().await {
-        match message? {
-            m @ (Message::Text(_) | Message::Binary(_)) => ws.send(m).await?,
-            Message::Close(_) => break,
-            _ => {}
+    let result = async {
+        while let Some(message) = ws.next().await {
+            match message? {
+                m @ (Message::Text(_) | Message::Binary(_)) => ws.send(m).await?,
+                Message::Close(_) => break,
+                _ => {}
+            }
         }
+        anyhow::Ok(())
     }
-    Ok(())
+    .await;
+    drop(ws);
+    state.websockets_ended.fetch_add(1, Ordering::SeqCst);
+    state.websockets_changed.notify_waiters();
+    result
 }
 
 /// An unmasked server-to-client text frame.

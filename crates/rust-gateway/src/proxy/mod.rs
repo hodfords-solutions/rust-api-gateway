@@ -18,6 +18,7 @@
 mod body;
 mod forward;
 pub(crate) mod pool;
+pub(crate) mod websocket;
 
 use std::net::SocketAddr;
 use std::sync::Arc;
@@ -243,9 +244,11 @@ fn rate_limit_error(error: RateLimitError) -> GatewayError {
     }
 }
 
-/// WebSocket upgrades (area 06) are not handled yet. The Reference Gateway tunnels them
-/// (WS-01 onwards); until that is ported, an upgrade request is answered with 501 so it is
-/// never forwarded as a plain request with its upgrade headers stripped.
+/// An upgrade request that reached the router. [`Gateway::serve`](crate::Gateway::serve)
+/// proxies upgrades before they reach hyper or the router ([`websocket`], area 06), so this
+/// only happens when the router is served some other way. The router cannot reproduce the
+/// WebSocket proxy's wire behaviour, so it answers 501 rather than forwarding the request
+/// as a plain request with its upgrade headers stripped.
 async fn websocket_upgrade(
     shared: &Arc<Shared>,
     _request: Request<Body>,
