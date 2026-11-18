@@ -581,7 +581,11 @@ impl Gateway {
     }
 
     /// Serves the gateway on `listener` until `shutdown` resolves, then stops accepting
-    /// connections and waits for the open ones to finish their current request.
+    /// connections, closes open WebSocket tunnels, and waits for the other connections to
+    /// finish their current request.
+    ///
+    /// WebSocket upgrades (area 06) are proxied only here: they are taken over before they
+    /// reach the [`router`](Self::router), which answers them 501 when served another way.
     ///
     /// Use [`server::bind_dual_stack`](crate::server::bind_dual_stack) to listen like Node
     /// does (FWD-07).
@@ -590,7 +594,8 @@ impl Gateway {
         listener: TcpListener,
         shutdown: impl Future<Output = ()> + Send,
     ) -> io::Result<()> {
-        crate::server::serve(self.router(), listener, shutdown).await
+        crate::server::serve_gateway(self.router(), Arc::clone(&self.shared), listener, shutdown)
+            .await
     }
 }
 

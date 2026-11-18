@@ -28,6 +28,8 @@ pub use headers::{
     node_incoming_headers, node_remote_address, response_headers, strip_excluded_headers,
     upstream_framing, upstream_request_headers,
 };
+pub(crate) use headers::{is_valid_header_value, latin1};
+pub(crate) use js_object::JsObject;
 pub use kebab::kebab_case;
 pub use path::{upstream_path, upstream_target};
 pub use prefix::{matches_prefix_segment, strip_service_prefix};

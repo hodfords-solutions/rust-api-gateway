@@ -18,6 +18,7 @@ bytes = "1.12.2"
 http = "1.5.0"
 http-body = "1.1.0"
 http-body-util = "0.1.5"
+httparse = "1.10.1"
 httpdate = "1.0.3"
 hyper = { version = "1.12.0", features = ["client", "http1", "server"] }
 hyper-util = { version = "0.1.21", features = ["service", "tokio"] }

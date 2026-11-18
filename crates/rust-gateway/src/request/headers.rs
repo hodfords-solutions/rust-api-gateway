@@ -241,7 +241,7 @@ pub fn upstream_request_headers(
 }
 
 /// A JavaScript string written as latin1 by undici: `None` when a character is above U+00FF.
-fn latin1(value: &str) -> Option<Vec<u8>> {
+pub(crate) fn latin1(value: &str) -> Option<Vec<u8>> {
     value
         .chars()
         .map(|c| u8::try_from(u32::from(c)).ok())
@@ -249,7 +249,7 @@ fn latin1(value: &str) -> Option<Vec<u8>> {
 }
 
 /// undici's `isValidHeaderValue`: only tab, `0x20..=0x7e` and `0x80..=0xff`.
-fn is_valid_header_value(value: &[u8]) -> bool {
+pub(crate) fn is_valid_header_value(value: &[u8]) -> bool {
     value
         .iter()
         .all(|&b| b == b'\t' || (0x20..=0x7e).contains(&b) || b >= 0x80)
