@@ -28,29 +28,45 @@ use axum::extract::ConnectInfo;
 use http::header::{HeaderName, HeaderValue};
 use http::{HeaderMap, Request, Response};
 
-use crate::error::GatewayError;
+use crate::error::{ErrorContext, GatewayError};
 use crate::gateway::Shared;
 use crate::handler::{GatewayRequest, IdentityContext};
-use crate::rate_limit::{RateLimitError, RouteKey, has_status_limits};
+use crate::rate_limit::{RateLimitError, RateLimitState, RouteKey, has_status_limits};
 use crate::request::{
     ProxyRequest, RequestClass, classify, is_supported_method, normalize_request_url,
     strip_service_prefix,
 };
 
-pub(crate) use forward::{render_error, weak_etag};
+pub(crate) use forward::{render_error, render_error_with, weak_etag};
 
 /// Handles one request that reached the proxy.
 pub(crate) async fn handle(shared: &Arc<Shared>, request: Request<Body>) -> Response<Body> {
     match run(shared, request).await {
         Ok(response) => response,
-        Err(error) => {
+        Err(Failure { error, context }) => {
             if let GatewayError::Internal {
                 source: Some(source),
             } = &error
             {
                 tracing::error!(error = %source, "request failed");
             }
-            render_error(shared, &error)
+            render_error_with(shared, &error, &context)
+        }
+    }
+}
+
+/// A request the pipeline answers with an error, and what the error renderer is told about
+/// it besides the error (RL-25).
+struct Failure {
+    error: GatewayError,
+    context: ErrorContext,
+}
+
+impl From<GatewayError> for Failure {
+    fn from(error: GatewayError) -> Self {
+        Self {
+            error,
+            context: ErrorContext::new(),
         }
     }
 }
@@ -67,9 +83,9 @@ fn is_upgrade_request(request: &Request<Body>) -> bool {
             .any(|token| token.trim().eq_ignore_ascii_case("upgrade"))
 }
 
-async fn run(shared: &Arc<Shared>, request: Request<Body>) -> Result<Response<Body>, GatewayError> {
+async fn run(shared: &Arc<Shared>, request: Request<Body>) -> Result<Response<Body>, Failure> {
     if is_upgrade_request(&request) {
-        return websocket_upgrade(shared, request).await;
+        return Ok(websocket_upgrade(shared, request).await?);
     }
     let (parts, body) = request.into_parts();
     let peer = parts
@@ -129,7 +145,8 @@ async fn run(shared: &Arc<Shared>, request: Request<Body>) -> Result<Response<Bo
         if !is_supported_method(&method) {
             return Err(GatewayError::UnsupportedMethod {
                 method: method.to_string(),
-            });
+            }
+            .into());
         }
         selected.require_document(|prefix| store.has_document(prefix))?;
         let route = store
@@ -146,7 +163,7 @@ async fn run(shared: &Arc<Shared>, request: Request<Body>) -> Result<Response<Bo
         limiter
             .count_global_ip(&mut state)
             .await
-            .map_err(rate_limit_error)?;
+            .map_err(|error| rate_limit_error(error, &state))?;
 
         // REQ-17: excluded names cannot come from anywhere but a middleware.
         for name in exclude {
@@ -165,8 +182,8 @@ async fn run(shared: &Arc<Shared>, request: Request<Body>) -> Result<Response<Bo
             limiter
                 .count_anonymous_ip(&mut state)
                 .await
-                .map_err(rate_limit_error)?;
-            return Err(rejection);
+                .map_err(|error| rate_limit_error(error, &state))?;
+            return Err(rejection.into());
         }
 
         // RL-11 to RL-13: the resolver runs after middleware, only when limiting is on.
@@ -193,7 +210,7 @@ async fn run(shared: &Arc<Shared>, request: Request<Body>) -> Result<Response<Bo
                 &route.rate_limits,
             )
             .await
-            .map_err(rate_limit_error)?;
+            .map_err(|error| rate_limit_error(error, &state))?;
         if has_status_limits(&route.rate_limits) {
             after_response = Some(forward::AfterResponse {
                 limiter: limiter.clone(),
@@ -214,7 +231,7 @@ async fn run(shared: &Arc<Shared>, request: Request<Body>) -> Result<Response<Bo
     } else {
         Vec::new()
     };
-    forward::forward(
+    Ok(forward::forward(
         shared,
         pool,
         forward::Outgoing {
@@ -229,18 +246,28 @@ async fn run(shared: &Arc<Shared>, request: Request<Body>) -> Result<Response<Bo
         body,
         after_response,
     )
-    .await
+    .await?)
 }
 
-/// A rejection or failure of a rate-limit operation: 429 with the Bucket's body, or 500
-/// (REQ-24, Deviation D10).
-fn rate_limit_error(error: RateLimitError) -> GatewayError {
+/// A rejection or failure of a rate-limit operation: 429 with the Bucket's body, telling the
+/// renderer when the Bucket resets (RL-25), or 500 (REQ-24, Deviation D10).
+fn rate_limit_error(error: RateLimitError, state: &RateLimitState) -> Failure {
     match error {
-        RateLimitError::TooManyRequests(rejection) => GatewayError::RateLimited {
-            body: serde_json::from_str(&rejection.body())
-                .unwrap_or_else(|_| serde_json::Value::String(rejection.message().to_string())),
-        },
-        other => GatewayError::internal(other),
+        RateLimitError::TooManyRequests(rejection) => {
+            let mut context = ErrorContext::new();
+            if let Some(remaining) = state.retry_after() {
+                context = context.with_retry_after(remaining);
+            }
+            Failure {
+                error: GatewayError::RateLimited {
+                    body: serde_json::from_str(&rejection.body()).unwrap_or_else(|_| {
+                        serde_json::Value::String(rejection.message().to_string())
+                    }),
+                },
+                context,
+            }
+        }
+        other => GatewayError::internal(other).into(),
     }
 }
 

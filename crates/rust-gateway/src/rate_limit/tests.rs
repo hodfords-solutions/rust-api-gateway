@@ -1165,3 +1165,127 @@ async fn rl_04_unusable_window_fails() {
     let (_, result) = request(&l, "10.0.0.1", None, &[]).await;
     assert!(matches!(result, Err(RateLimitError::InvalidWindow { .. })));
 }
+
+// ---------------------------------------------------------------------------------------
+// RL-25: the remaining window of the Bucket that rejected a request
+// ---------------------------------------------------------------------------------------
+
+/// Asserts that `state` reports a remaining window of at most `window` and close to it (the
+/// in-memory store opened the Bucket moments ago).
+fn assert_retry_after_close_to(state: &RateLimitState, window: std::time::Duration) {
+    let remaining = state
+        .retry_after()
+        .expect("a rejected request has a retry-after");
+    assert!(remaining <= window, "{remaining:?} > {window:?}");
+    assert!(
+        remaining + std::time::Duration::from_secs(5) > window,
+        "{remaining:?} is far below {window:?}"
+    );
+}
+
+/// RL-25: each of the four Bucket kinds records, on the request's state, how long until it
+/// resets when it rejects; an admitted request has none.
+#[tokio::test]
+async fn rl_25_retry_after_for_each_bucket_kind() {
+    use std::time::Duration;
+
+    // Global IP.
+    let mut opts = options(true);
+    opts.global_ip = BucketLimit::new(1, 30.0);
+    let l = limiter(opts, MemoryStore::default());
+    let (admitted, result) = request(&l, "1.1.1.1", None, &[]).await;
+    result.expect("admitted");
+    assert_eq!(admitted.retry_after(), None);
+    let (rejected, result) = request(&l, "1.1.1.1", None, &[]).await;
+    assert!(matches!(
+        result,
+        Err(RateLimitError::TooManyRequests(TooManyRequests::GlobalIp))
+    ));
+    assert_retry_after_close_to(&rejected, Duration::from_secs(30));
+
+    // Anonymous IP, through the pipeline's call on a middleware rejection (RL-10).
+    let mut opts = options(true);
+    opts.anonymous_ip_limit = Some(1);
+    opts.anonymous_ip_ttl = Some(45.0);
+    let l = limiter(opts, MemoryStore::default());
+    let mut first = state_for(&l, "2.2.2.2");
+    l.count_anonymous_ip(&mut first).await.expect("admitted");
+    assert_eq!(first.retry_after(), None);
+    let mut second = state_for(&l, "2.2.2.2");
+    assert!(matches!(
+        l.count_anonymous_ip(&mut second).await,
+        Err(RateLimitError::TooManyRequests(
+            TooManyRequests::AnonymousIp
+        ))
+    ));
+    assert_retry_after_close_to(&second, Duration::from_secs(45));
+
+    // Custom.
+    let mut opts = options(true);
+    opts.custom = BucketLimit::new(1, 90.5);
+    let l = limiter(opts, MemoryStore::default());
+    request(&l, "3.3.3.3", None, &[]).await.1.expect("admitted");
+    let (rejected, result) = request(&l, "3.3.3.3", None, &[]).await;
+    assert!(matches!(
+        result,
+        Err(RateLimitError::TooManyRequests(TooManyRequests::Custom))
+    ));
+    assert_retry_after_close_to(&rejected, Duration::from_millis(90_500));
+
+    // Route, counted on the way in, and the second of two limits being the full one.
+    let l = limiter(options(true), MemoryStore::default());
+    let limits = [
+        RouteLimit {
+            limit: 10,
+            ttl: 3600.0,
+            status: None,
+        },
+        RouteLimit {
+            limit: 1,
+            ttl: 120.0,
+            status: None,
+        },
+    ];
+    request(&l, "4.4.4.4", None, &limits)
+        .await
+        .1
+        .expect("admitted");
+    let (rejected, result) = request(&l, "4.4.4.4", None, &limits).await;
+    assert!(matches!(
+        result,
+        Err(RateLimitError::TooManyRequests(TooManyRequests::Route { ttl })) if ttl == 120.0
+    ));
+    assert_retry_after_close_to(&rejected, Duration::from_secs(120));
+
+    // Route, status-scoped: counted after the response, only checked on the way in.
+    let l = limiter(options(true), MemoryStore::default());
+    let limits = [status_limit(1, 401)];
+    let (first, result) = request(&l, "5.5.5.5", None, &limits).await;
+    result.expect("admitted");
+    l.count_after_response(&first, ROUTE, &limits, 401)
+        .await
+        .expect("counted");
+    let (rejected, result) = request(&l, "5.5.5.5", None, &limits).await;
+    assert!(matches!(
+        result,
+        Err(RateLimitError::TooManyRequests(
+            TooManyRequests::Route { .. }
+        ))
+    ));
+    assert_retry_after_close_to(&rejected, Duration::from_secs(60));
+}
+
+/// RL-25: a status-scoped Route limit of 0 rejects before its Bucket was ever opened; no
+/// Bucket expires, so there is no retry-after.
+#[tokio::test]
+async fn rl_25_no_retry_after_without_an_open_bucket() {
+    let l = limiter(options(true), MemoryStore::default());
+    let (rejected, result) = request(&l, "6.6.6.6", None, &[status_limit(0, 401)]).await;
+    assert!(matches!(
+        result,
+        Err(RateLimitError::TooManyRequests(
+            TooManyRequests::Route { .. }
+        ))
+    ));
+    assert_eq!(rejected.retry_after(), None);
+}

@@ -215,7 +215,10 @@ impl McpEndpoint {
                         if let MiddlewareError::Other(source) = &error {
                             tracing::error!(target: "api_gateway::mcp", "MCP authentication failed: {source}");
                         }
-                        let rendered = self.renderer.render(&error.into_gateway_error());
+                        let rendered = self.renderer.render_with_context(
+                            &error.into_gateway_error(),
+                            &crate::error::ErrorContext::new(),
+                        );
                         rendered.map(|body| Full::new(Bytes::from(body)).boxed())
                     }
                 };

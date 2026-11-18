@@ -6,7 +6,9 @@ use super::js;
 ///
 /// The pipeline answers it with [`TooManyRequests::STATUS`] and [`TooManyRequests::body`] as
 /// a JSON body (`Content-Type: application/json; charset=utf-8`, REQ-23), and with no
-/// `Retry-After` or `X-RateLimit-*` header (RL-22).
+/// `Retry-After` or `X-RateLimit-*` header (RL-22). How long until the full Bucket resets is
+/// on the request's [`RateLimitState::retry_after`](super::RateLimitState::retry_after), and
+/// reaches the error renderer, which may send `Retry-After` (RL-25).
 #[derive(Debug, Clone, PartialEq, thiserror::Error)]
 pub enum TooManyRequests {
     /// The Global IP Bucket is full (RL-09, RL-20).

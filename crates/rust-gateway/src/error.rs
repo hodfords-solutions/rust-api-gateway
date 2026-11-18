@@ -3,7 +3,9 @@
 //! Each [`GatewayError`] renders, by default, exactly the status, content type and JSON body
 //! the Reference Gateway sends (key order included). An application can replace the
 //! rendering with an [`ErrorRenderer`] (REQ-25), the counterpart of a NestJS exception
-//! filter in the reference's host application.
+//! filter in the reference's host application. A renderer that implements
+//! [`ErrorRenderer::render_with_context`] also learns what the gateway knows beyond the
+//! error, such as when a full Bucket resets ([`ErrorContext`], RL-25).
 //!
 //! The server adds what Express adds to these responses: a weak `ETag` (seen in the
 //! Conformance Tests, not asserted), and `X-Powered-By: Express` only when
@@ -12,6 +14,7 @@
 
 use std::error::Error as StdError;
 use std::fmt::Write as _;
+use std::time::Duration;
 
 use http::{HeaderValue, Response, StatusCode, header};
 use serde_json::Value;
@@ -207,11 +210,101 @@ impl GatewayError {
     }
 }
 
+/// What the gateway knows about an error beyond the [`GatewayError`] itself, handed to
+/// [`ErrorRenderer::render_with_context`] (RL-25).
+///
+/// For a [`GatewayError::RateLimited`] answered by the request pipeline it holds how long
+/// until the full Bucket resets, read from Redis in the same call that rejected the request.
+/// The Reference Gateway sends no `Retry-After` (RL-22), so the default renderer ignores it;
+/// a renderer of the application's can turn it into one.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+#[non_exhaustive]
+pub struct ErrorContext {
+    retry_after: Option<Duration>,
+}
+
+impl ErrorContext {
+    /// A context with nothing in it.
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// This context with `retry_after` as the time until the rejecting Bucket resets.
+    pub fn with_retry_after(mut self, retry_after: Duration) -> Self {
+        self.retry_after = Some(retry_after);
+        self
+    }
+
+    /// How long until the Bucket that rejected the request resets, to the millisecond.
+    ///
+    /// `Some` only for a [`GatewayError::RateLimited`] of the request pipeline, for any of
+    /// the four Bucket kinds, and only when the Bucket has an open window: a status-scoped
+    /// Route limit of 0 rejects with no window open, and has none. The value is what
+    /// [`RateLimitState::retry_after`](crate::rate_limit::RateLimitState::retry_after)
+    /// reports.
+    pub fn retry_after(&self) -> Option<Duration> {
+        self.retry_after
+    }
+
+    /// [`retry_after`](Self::retry_after) in whole seconds, rounded up, as a `Retry-After`
+    /// header states it: a client that waits that long finds the Bucket reset.
+    pub fn retry_after_seconds(&self) -> Option<u64> {
+        self.retry_after.map(|remaining| {
+            let seconds = remaining.as_secs();
+            if remaining.subsec_nanos() > 0 {
+                seconds + 1
+            } else {
+                seconds
+            }
+        })
+    }
+}
+
 /// Renders gateway errors as responses (REQ-25). The default is
 /// [`DefaultErrorRenderer`]; any `Fn(&GatewayError) -> Response<Vec<u8>>` is a renderer.
 pub trait ErrorRenderer: Send + Sync {
     /// The response for `error`.
     fn render(&self, error: &GatewayError) -> Response<Vec<u8>>;
+
+    /// The response for `error`, knowing `context` (RL-25). The gateway calls this method
+    /// for every error it renders; the default ignores the context and calls
+    /// [`render`](Self::render), so a renderer that only implements `render` renders as
+    /// before.
+    ///
+    /// Override it to use the context, for example to send `Retry-After` on a 429:
+    ///
+    /// ```
+    /// use api_gateway::error::{ErrorContext, ErrorRenderer, GatewayError};
+    /// use http::{Response, header};
+    ///
+    /// struct WithRetryAfter;
+    ///
+    /// impl ErrorRenderer for WithRetryAfter {
+    ///     fn render(&self, error: &GatewayError) -> Response<Vec<u8>> {
+    ///         error.to_response()
+    ///     }
+    ///
+    ///     fn render_with_context(
+    ///         &self,
+    ///         error: &GatewayError,
+    ///         context: &ErrorContext,
+    ///     ) -> Response<Vec<u8>> {
+    ///         let mut response = self.render(error);
+    ///         if let Some(seconds) = context.retry_after_seconds() {
+    ///             response.headers_mut().insert(header::RETRY_AFTER, seconds.into());
+    ///         }
+    ///         response
+    ///     }
+    /// }
+    /// ```
+    fn render_with_context(
+        &self,
+        error: &GatewayError,
+        context: &ErrorContext,
+    ) -> Response<Vec<u8>> {
+        let _ = context;
+        self.render(error)
+    }
 }
 
 /// The Reference Gateway's responses ([`GatewayError::to_response`]).
@@ -533,5 +626,46 @@ mod tests {
             bodies,
             [r#"{"message":"Forbidden","statusCode":403}"#, "custom 403"]
         );
+    }
+
+    // RL-25: the retry-after in whole seconds is rounded up, so that a client waiting that
+    // long never arrives before the Bucket resets.
+    #[test]
+    fn rl_25_retry_after_seconds_round_up() {
+        use std::time::Duration;
+        assert_eq!(ErrorContext::new().retry_after(), None);
+        assert_eq!(ErrorContext::new().retry_after_seconds(), None);
+        for (millis, seconds) in [(1, 1), (999, 1), (1000, 1), (1001, 2), (59_999, 60)] {
+            let context = ErrorContext::new().with_retry_after(Duration::from_millis(millis));
+            assert_eq!(context.retry_after(), Some(Duration::from_millis(millis)));
+            assert_eq!(context.retry_after_seconds(), Some(seconds), "{millis} ms");
+        }
+        assert_eq!(
+            ErrorContext::new()
+                .with_retry_after(Duration::ZERO)
+                .retry_after_seconds(),
+            Some(0)
+        );
+    }
+
+    // RL-25: a renderer that only implements `render` renders every error the same way
+    // whatever the context, so the default output does not change.
+    #[test]
+    fn rl_25_default_rendering_ignores_the_context() {
+        let error = GatewayError::RateLimited {
+            body: json!({"message":"error.too_many_requests"}),
+        };
+        let context = ErrorContext::new().with_retry_after(std::time::Duration::from_secs(7));
+        let custom = |error: &GatewayError| Response::new(error.body().into_bytes());
+        let renderers: Vec<Box<dyn ErrorRenderer>> =
+            vec![Box::new(DefaultErrorRenderer), Box::new(custom)];
+        for renderer in renderers {
+            let plain = renderer.render(&error);
+            let with_context = renderer.render_with_context(&error, &context);
+            assert_eq!(plain.status(), with_context.status());
+            assert_eq!(plain.headers(), with_context.headers());
+            assert_eq!(plain.body(), with_context.body());
+            assert!(!with_context.headers().contains_key(header::RETRY_AFTER));
+        }
     }
 }

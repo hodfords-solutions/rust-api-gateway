@@ -247,3 +247,144 @@ async fn rl_16_status_scoped_bucket_counts_after_response() {
     .await
     .expect("another Identity has its own Bucket");
 }
+
+/// Asserts that a rejected request's state reports how long until its Bucket resets: at most
+/// the window, and no less than the window minus the time since the Bucket opened.
+fn assert_retry_after(
+    state: &api_gateway::rate_limit::RateLimitState,
+    window: Duration,
+    opened: Instant,
+) {
+    let remaining = state
+        .retry_after()
+        .expect("a rejected request has a retry-after");
+    assert!(remaining <= window, "{remaining:?} > {window:?}");
+    let lower = window.saturating_sub(opened.elapsed() + Duration::from_millis(5));
+    assert!(remaining >= lower, "{remaining:?} < {lower:?}");
+}
+
+/// RL-25: the remaining window comes from Redis, for each of the four Bucket kinds, from
+/// the same call that rejected the request.
+#[tokio::test]
+async fn rl_25_retry_after_comes_from_the_rejecting_bucket() {
+    require_redis!();
+
+    // Global IP: 1 per 30 s.
+    let mut opts = options();
+    opts.global_ip = BucketLimit::new(1, 30.0);
+    let l = limiter(&opts);
+    let client = format!("client-{}", nonce());
+    let opened = Instant::now();
+    assert!(global_ip(&l, &client).await);
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    let mut rejected = state(&l, &client);
+    assert!(!admitted(&l.count_global_ip(&mut rejected).await));
+    assert_retry_after(&rejected, Duration::from_secs(30), opened);
+    assert!(
+        rejected.retry_after().unwrap() < Duration::from_millis(29_750),
+        "the window is not reopened by the rejection"
+    );
+
+    // Anonymous IP: 1 per 45 s.
+    let mut opts = options();
+    opts.anonymous_ip_limit = Some(1);
+    opts.anonymous_ip_ttl = Some(45.0);
+    let l = limiter(&opts);
+    let client = format!("client-{}", nonce());
+    let opened = Instant::now();
+    let mut first = state(&l, &client);
+    l.count_anonymous_ip(&mut first).await.expect("admitted");
+    assert_eq!(first.retry_after(), None);
+    let mut second = state(&l, &client);
+    assert!(matches!(
+        l.count_anonymous_ip(&mut second).await,
+        Err(RateLimitError::TooManyRequests(
+            TooManyRequests::AnonymousIp
+        ))
+    ));
+    assert_retry_after(&second, Duration::from_secs(45), opened);
+
+    // Custom: 1 per 1.5 s, so the value has sub-second precision.
+    let mut opts = options();
+    opts.custom = BucketLimit::new(1, 1.5);
+    let l = limiter(&opts);
+    let id = format!("user-{}", nonce());
+    let route = RouteKey::new("users", "GET", "/v1/retry-after/custom");
+    let opened = Instant::now();
+    let mut first = state(&l, "198.51.100.30");
+    l.check_limits(
+        &mut first,
+        Some(Identity::anonymous(id.clone())),
+        route,
+        &[],
+    )
+    .await
+    .expect("admitted");
+    let mut second = state(&l, "198.51.100.30");
+    assert!(matches!(
+        l.check_limits(&mut second, Some(Identity::anonymous(id)), route, &[])
+            .await,
+        Err(RateLimitError::TooManyRequests(TooManyRequests::Custom))
+    ));
+    assert_retry_after(&second, Duration::from_millis(1500), opened);
+
+    // Route, counted on the way in.
+    let l = limiter(&options());
+    let id = format!("user-{}", nonce());
+    let route = RouteKey::new("users", "GET", "/v1/retry-after/route");
+    let limits = [RouteLimit {
+        limit: 1,
+        ttl: 120.0,
+        status: None,
+    }];
+    let opened = Instant::now();
+    let mut first = state(&l, "198.51.100.31");
+    l.check_limits(
+        &mut first,
+        Some(Identity::anonymous(id.clone())),
+        route,
+        &limits,
+    )
+    .await
+    .expect("admitted");
+    let mut second = state(&l, "198.51.100.31");
+    assert!(matches!(
+        l.check_limits(&mut second, Some(Identity::anonymous(id)), route, &limits)
+            .await,
+        Err(RateLimitError::TooManyRequests(
+            TooManyRequests::Route { .. }
+        ))
+    ));
+    assert_retry_after(&second, Duration::from_secs(120), opened);
+
+    // Route, status-scoped: opened after the response, checked on the way in.
+    let id = format!("user-{}", nonce());
+    let route = RouteKey::new("users", "POST", "/v1/retry-after/on-status");
+    let limits = [RouteLimit {
+        limit: 1,
+        ttl: 90.0,
+        status: Some(401),
+    }];
+    let mut first = state(&l, "198.51.100.32");
+    l.check_limits(
+        &mut first,
+        Some(Identity::anonymous(id.clone())),
+        route,
+        &limits,
+    )
+    .await
+    .expect("admitted");
+    let opened = Instant::now();
+    l.count_after_response(&first, route, &limits, 401)
+        .await
+        .expect("counted");
+    let mut second = state(&l, "198.51.100.32");
+    assert!(matches!(
+        l.check_limits(&mut second, Some(Identity::anonymous(id)), route, &limits)
+            .await,
+        Err(RateLimitError::TooManyRequests(
+            TooManyRequests::Route { .. }
+        ))
+    ));
+    assert_retry_after(&second, Duration::from_secs(90), opened);
+}

@@ -14,18 +14,20 @@ use super::RouteKey;
 /// - Count below `ARGV[1]`: increment and admit. The window is not extended (RL-02).
 /// - Otherwise: reject without counting.
 ///
-/// Returns 0 when admitted and 1 when rejected.
+/// Returns `{0}` when admitted, and `{1, PTTL}` when rejected: the window's remaining
+/// milliseconds, read in the same atomic step so that a 429 can say when the Bucket resets
+/// without another round trip (RL-25).
 pub(crate) const CHECK_AND_COUNT: &str = r"
 local current = tonumber(redis.call('GET', KEYS[1]) or '0')
 if current > 0 then
     if current >= tonumber(ARGV[1]) then
-        return 1
+        return {1, redis.call('PTTL', KEYS[1])}
     end
     redis.call('INCR', KEYS[1])
-    return 0
+    return {0}
 end
 redis.call('SET', KEYS[1], 1, 'PX', ARGV[2])
-return 0
+return {0}
 ";
 
 const PREFIX: &str = "rgw:rl:";

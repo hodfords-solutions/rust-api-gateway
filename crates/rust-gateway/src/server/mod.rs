@@ -5,12 +5,16 @@
 //!   IPv4 client is seen as `::ffff:127.0.0.1` (FWD-07, RL-06).
 //! - [`serve`]: an HTTP/1.1 accept loop that gives handlers the client address and answers
 //!   `Expect: 100-continue` with `100 Continue` at once, as Node does (FWD-12).
-//! - [`node_compat`]: Express's router checks that run before any route (malformed
-//!   percent-encoding, REQ-26; the asterisk-form target, REQ-01), and the headers Express and
-//!   Node put on every response, in their order (FWD-15, FWD-22, REQ-23): `X-Powered-By`
-//!   first when it is turned on (off by default, Deviation D11), then the response's own
-//!   headers, `Content-Length` for a body of known length that is not streamed, `Date`,
-//!   `Connection` and `Keep-Alive`, and `Transfer-Encoding: chunked` when there is no length.
+//! - [`express_checks`]: Express's router checks that run before any route (malformed
+//!   percent-encoding, REQ-26; the asterisk-form target, REQ-01).
+//! - [`node_compat`]: the headers Express and Node put on every response, in their order
+//!   (FWD-15, FWD-22, REQ-23): `X-Powered-By` first when it is turned on (off by default,
+//!   Deviation D11), then the response's own headers, `Content-Length` for a body of known
+//!   length that is not streamed, `Date`, `Connection` and `Keep-Alive`, and
+//!   `Transfer-Encoding: chunked` when there is no length.
+//! - The application's layers ([`GatewayBuilder::layer`](crate::GatewayBuilder::layer),
+//!   REQ-27) sit between the two, as Express middleware sits between Node and Express's
+//!   router: they see Express's errors, and Node completes what they answer.
 //! - Request targets as Node's parser accepts them ([`inbound`]).
 //! - WebSocket upgrades (area 06), when the gateway serves itself
 //!   ([`Gateway::serve`](crate::Gateway::serve)): an upgrade request never reaches hyper or
@@ -442,7 +446,9 @@ impl RequestInfo {
     }
 }
 
-/// The Express and Node behaviours around every request (see the [module docs](self)).
+/// The Node behaviours around every request (see the [module docs](self)): the immediate
+/// `100 Continue`, and the headers Node completes every response with. Outermost, so it also
+/// completes what the application's layers answer themselves (REQ-27).
 pub(crate) async fn node_compat(
     State(shared): State<Arc<Shared>>,
     request: Request<Body>,
@@ -458,7 +464,18 @@ pub(crate) async fn node_compat(
     {
         interim.push(b"HTTP/1.1 100 Continue\r\n\r\n");
     }
+    let response = next.run(request).await;
+    complete(response, &info, shared.x_powered_by)
+}
 
+/// Express's router checks, which run before any route (see the [module docs](self)): the
+/// asterisk-form target (REQ-01) and malformed percent-encoding (REQ-26). Innermost, so
+/// their errors pass through the application's layers (REQ-27).
+pub(crate) async fn express_checks(
+    State(shared): State<Arc<Shared>>,
+    request: Request<Body>,
+    next: Next,
+) -> Response<Body> {
     let target = request.uri().to_string();
     let early = if target == "*" {
         Some(GatewayError::NotFound {
@@ -468,11 +485,10 @@ pub(crate) async fn node_compat(
     } else {
         malformed_path_segment(&target).map(|segment| GatewayError::MalformedPath { segment })
     };
-    let response = match early {
+    match early {
         Some(error) => crate::proxy::render_error(&shared, &error),
         None => next.run(request).await,
-    };
-    complete(response, &info, shared.x_powered_by)
+    }
 }
 
 /// Completes the response headers the way Node writes them.

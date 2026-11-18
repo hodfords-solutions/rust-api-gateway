@@ -26,7 +26,7 @@ What clients and upstream services observe is the same as with the Reference Gat
 
 - **Document endpoints and MCP**: `/documents` (Scalar API reference) and `/document-json` aggregate every service's document. With the cargo feature `mcp`, Routes are exposed as MCP tools at `POST /mcp`.
 
-It does not add what the Reference Gateway lacks: load balancing, retries, circuit breaking, CORS handling, response caching or TLS termination.
+It does not add what the Reference Gateway lacks: load balancing, retries, circuit breaking, CORS handling, response caching or TLS termination. CORS, default response headers and `Retry-After` are not built in either, but the application can add them with its own [response layer](#response-layer-cors-and-default-headers) and [error renderer](#retry-after).
 
 ## Usage
 
@@ -104,6 +104,7 @@ Things to know:
 - Startup does not wait for upstream documents. `Gateway::ready()` resolves once every service's first load has settled.
 - Handlers are registered on the builder, where the NestJS library discovers decorators. Handlers of one kind run in ascending priority (`*_with_priority`, default 1), then in registration order.
 - The gateway sends no `X-Powered-By` header, where the Reference Gateway sends `X-Powered-By: Express` (Deviation D11). `GatewayBuilder::x_powered_by(true)` turns it on.
+- `GatewayBuilder::layer` wraps every HTTP response of the gateway in your own tower layer, for CORS and default headers (see [Response layer](#response-layer-cors-and-default-headers)).
 
 A complete program is the example [`crates/rust-gateway/examples/quickstart.rs`](crates/rust-gateway/examples/quickstart.rs) (`cargo run -p api-gateway --example quickstart`).
 
@@ -381,6 +382,84 @@ impl IdentityResolver for KeyResolver {
 
 The same identity is used for the custom global limit and for any per-endpoint `@ApiRateLimit` rule. Resolvers are asynchronous. If the resolver returns an error, the request is answered with 500 (no silent allow, no silent deny). If no resolver is registered, the custom limit falls back to the normalised client IP (matching the IP limit's bucketing key).
 
+#### Response layer (CORS and default headers)
+Since 0.1.1, `GatewayBuilder::layer` wraps everything the gateway answers over HTTP in a tower layer of yours, the way Express middleware (`app.enableCors()`, `app.use(...)`) wraps a NestJS app: your routes, `/documents`, `/document-json`, `/mcp`, proxied responses (Routed, Static and Bypass) and the gateway's own error responses. It takes any layer `axum::Router::layer` takes, such as those of [`tower-http`](https://crates.io/crates/tower-http) (`cargo add tower-http --features cors,set-header`).
+
+The layer sees each request before the gateway does anything with it, so it can answer a CORS preflight itself: the proxy, the middleware and the rate limiter never run for it. It sees each response last, so the headers it sets override the upstream's.
+```rust
+use std::time::Duration;
+
+use http::{HeaderValue, header};
+use tower_http::cors::{AllowHeaders, AllowMethods, AllowOrigin, CorsLayer};
+use tower_http::set_header::SetResponseHeaderLayer;
+
+let cors = CorsLayer::new()
+    // Your policy: here any subdomain of example.com.
+    .allow_origin(AllowOrigin::predicate(|origin, _| {
+        origin
+            .to_str()
+            .is_ok_and(|origin| origin.ends_with(".example.com"))
+    }))
+    .allow_credentials(true)
+    .allow_methods(AllowMethods::mirror_request())
+    .allow_headers(AllowHeaders::mirror_request())
+    .max_age(Duration::from_secs(600))
+    .expose_headers([header::CONTENT_DISPOSITION, header::RETRY_AFTER]);
+
+let gateway = Gateway::builder(options)
+    .layer(cors)
+    // Only when the upstream set none.
+    .layer(SetResponseHeaderLayer::if_not_present(
+        header::CACHE_CONTROL,
+        HeaderValue::from_static("no-store"),
+    ))
+    .layer(SetResponseHeaderLayer::if_not_present(
+        header::PRAGMA,
+        HeaderValue::from_static("no-cache"),
+    ))
+    // Always.
+    .layer(SetResponseHeaderLayer::overriding(
+        header::X_CONTENT_TYPE_OPTIONS,
+        HeaderValue::from_static("nosniff"),
+    ))
+    .build()?;
+```
+Like `Router::layer`, each layer wraps those added before it: here the header layers also reach the preflight answers of the CORS layer. Things to know:
+
+- WebSocket upgrades proxied by `Gateway::serve` never reach the layer, as Node never passes them through Express middleware; they are proxied exactly as without it. Check them in a `WsProxyMiddleware`.
+- Node's own headers (`Content-Length`, `Date`, `Connection`, `Keep-Alive`, `Transfer-Encoding`, and `X-Powered-By` when on) are added after the layer; do not set them in it.
+- Without a layer, every response is exactly what it was before 0.1.1. The design is recorded in [ADR 0003](docs/adr/0003-application-layer-between-express-checks-and-node-framing.md).
+
+#### Retry-After
+The 429 the gateway sends is the Reference Gateway's, with no `Retry-After` (RL-22). Since 0.1.1 the error renderer learns how long until the full Bucket resets, for each of the four Bucket kinds, read from Redis in the same call that rejected the request. Override `ErrorRenderer::render_with_context` to send it:
+```rust
+use api_gateway::error::{ErrorContext, ErrorRenderer, GatewayError};
+use http::{Response, header};
+
+struct WithRetryAfter;
+
+impl ErrorRenderer for WithRetryAfter {
+    fn render(&self, error: &GatewayError) -> Response<Vec<u8>> {
+        error.to_response() // the reference's status, content type and body
+    }
+
+    fn render_with_context(&self, error: &GatewayError, context: &ErrorContext) -> Response<Vec<u8>> {
+        let mut response = self.render(error);
+        // Whole seconds, rounded up; `None` for any other error.
+        if let Some(seconds) = context.retry_after_seconds() {
+            response.headers_mut().insert(header::RETRY_AFTER, seconds.into());
+        }
+        response
+    }
+}
+```
+```rust
+let gateway = Gateway::builder(options)
+    .error_renderer(WithRetryAfter)
+    .build()?;
+```
+`context.retry_after()` has the exact `Duration`. The gateway calls `render_with_context` for every error it renders; a renderer that only implements `render` (or a closure) renders as before. An application that calls the `RateLimiter` itself finds the same value in `RateLimitState::retry_after()`.
+
 ## Coming from the NestJS library
 
 | NestJS (`@hodfords/nestjs-api-gateway`) | Rust (`api_gateway`) |
@@ -399,7 +478,8 @@ The same identity is used for the custom global limit and for any per-endpoint `
 | `ThrottlerOption` | `rate_limit::RateLimitOptions` |
 | `ThrottlerOption.keyResolver` | `handler::IdentityResolver`, set with `GatewayBuilder::identity_resolver` |
 | Express `trust proxy` | `rate_limit::TrustProxy` in `RateLimitOptions::trust_proxy` |
-| A NestJS exception filter | `error::ErrorRenderer`, set with `GatewayBuilder::error_renderer` |
+| A NestJS exception filter | `error::ErrorRenderer`, set with `GatewayBuilder::error_renderer`; `render_with_context` also gets `error::ErrorContext`, with the time until a full Bucket resets for `Retry-After` |
+| Express middleware in the host app (`app.enableCors()`, `app.use(...)`) | A tower layer, set with `GatewayBuilder::layer` (WebSocket upgrades do not pass through it) |
 | `normalizeIp`, `DEFAULT_IPV6_SUBNET` | `rate_limit::normalize_ip`, `rate_limit::DEFAULT_IPV6_SUBNET` |
 | `ttlToHumanReadable` | `rate_limit::ttl_to_human_readable` |
 | `McpOption` | `mcp::McpOptions` |

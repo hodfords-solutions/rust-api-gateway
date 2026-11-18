@@ -24,14 +24,19 @@
 //! ```
 
 use std::collections::HashMap;
+use std::convert::Infallible;
 use std::future::Future;
 use std::io;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use axum::Router;
+use axum::extract::Request;
+use axum::response::IntoResponse;
+use axum::routing::Route;
 use serde_json::Value;
 use tokio::net::TcpListener;
+use tower::{Layer, Service};
 
 use crate::documents::{self, DocumentEndpoints};
 use crate::endpoints::Endpoints;
@@ -244,12 +249,16 @@ impl Handlers {
     }
 }
 
+/// Applies one application layer to the gateway's router (REQ-27).
+type ApplyLayer = Arc<dyn Fn(Router) -> Router + Send + Sync>;
+
 /// Builds a [`Gateway`] (API-01).
 pub struct GatewayBuilder {
     options: GatewayOptions,
     handlers: Handlers,
     renderer: Arc<dyn ErrorRenderer>,
     routes: Router,
+    layers: Vec<ApplyLayer>,
     fetcher: Option<Arc<dyn DocumentFetcher>>,
     x_powered_by: bool,
     upstream_tls: Option<Arc<rustls::ClientConfig>>,
@@ -261,6 +270,7 @@ impl std::fmt::Debug for GatewayBuilder {
             .field("options", &self.options)
             .field("handlers", &self.handlers)
             .field("x_powered_by", &self.x_powered_by)
+            .field("layers", &self.layers.len())
             .finish_non_exhaustive()
     }
 }
@@ -273,6 +283,7 @@ impl GatewayBuilder {
             handlers: Handlers::default(),
             renderer: Arc::new(DefaultErrorRenderer),
             routes: Router::new(),
+            layers: Vec::new(),
             fetcher: None,
             x_powered_by: false,
             upstream_tls: None,
@@ -362,6 +373,46 @@ impl GatewayBuilder {
     /// handles every request they do not match. The router must not set a fallback.
     pub fn routes(mut self, routes: Router) -> Self {
         self.routes = routes;
+        self
+    }
+
+    /// Wraps everything the gateway answers over HTTP in `layer` (REQ-27): the application's
+    /// routes ([`routes`](Self::routes)), the gateway's endpoints (`/documents`,
+    /// `/document-json`, `/mcp`), the proxy's Routed, Static and Bypass responses, and the
+    /// gateway's error responses, its renderer's and Express's own checks (REQ-26, the
+    /// asterisk-form target) alike. Any [`tower::Layer`] that [`Router::layer`] takes will do,
+    /// such as `tower_http`'s `CorsLayer` or `SetResponseHeaderLayer`, or
+    /// [`axum::middleware::from_fn`].
+    ///
+    /// The layer sees each request before the gateway does anything with it, so it can answer
+    /// a request itself (a CORS preflight, say): the proxy, the static predicates, the
+    /// middleware chain and the rate limiter then never run. It sees each response last, so
+    /// headers it sets override the upstream's or the renderer's. Only the headers Node adds
+    /// to every response come after it, in Node's order: `X-Powered-By` when it is turned on
+    /// ([`x_powered_by`](Self::x_powered_by)), `Content-Length` for a body of known length,
+    /// `Date`, `Connection`, `Keep-Alive` and `Transfer-Encoding`, so a layer should not set
+    /// those. `Expect: 100-continue` is answered before the layer runs (FWD-12).
+    ///
+    /// WebSocket upgrades proxied by [`Gateway::serve`] never reach the layer: they are taken
+    /// over before the router (area 06), as Node hands them to the Reference Gateway apart
+    /// from Express, and are proxied exactly as without a layer; the answers to rejected
+    /// upgrades (Deviation D1) do not pass through it either. Check upgrades with a
+    /// [`WsProxyMiddleware`] instead. When [`Gateway::router`] is served another way, an
+    /// upgrade request does reach the layer, and the router answers it 501.
+    ///
+    /// Call it more than once to add more layers: like [`Router::layer`], each wraps those
+    /// added before it, so the last added sees the request first and the response last.
+    /// Without a layer, every response is exactly what it is without this method.
+    pub fn layer<L>(mut self, layer: L) -> Self
+    where
+        L: Layer<Route> + Clone + Send + Sync + 'static,
+        L::Service: Service<Request> + Clone + Send + Sync + 'static,
+        <L::Service as Service<Request>>::Response: IntoResponse + 'static,
+        <L::Service as Service<Request>>::Error: Into<Infallible> + 'static,
+        <L::Service as Service<Request>>::Future: Send + 'static,
+    {
+        self.layers
+            .push(Arc::new(move |router: Router| router.layer(layer.clone())));
         self
     }
 
@@ -487,6 +538,7 @@ impl GatewayBuilder {
                 _loader: Mutex::new(Some(loader)),
             }),
             routes: self.routes,
+            layers: self.layers.into(),
         })
     }
 }
@@ -511,6 +563,7 @@ pub(crate) struct Shared {
 pub struct Gateway {
     pub(crate) shared: Arc<Shared>,
     routes: Router,
+    layers: Arc<[ApplyLayer]>,
 }
 
 impl std::fmt::Debug for Gateway {
@@ -578,7 +631,9 @@ impl Gateway {
     /// wrapped in the HTTP
     /// behaviours the reference gets from Express and Node (REQ-26, the asterisk-form
     /// target, `Date`, `Connection` and `Keep-Alive` on every response, and `X-Powered-By`
-    /// when [`GatewayBuilder::x_powered_by`] turns it on).
+    /// when [`GatewayBuilder::x_powered_by`] turns it on). The application's layers
+    /// ([`GatewayBuilder::layer`], REQ-27) sit between the two: outside Express's checks,
+    /// inside the headers Node adds.
     ///
     /// [`serve`](Self::serve) serves it with the client address and `Expect: 100-continue`
     /// handled as Node does; an application serving it another way must provide
@@ -597,8 +652,17 @@ impl Gateway {
             .fallback(fallback)
             .layer(axum::middleware::from_fn_with_state(
                 Arc::clone(&self.shared),
-                crate::server::node_compat,
+                crate::server::express_checks,
             ));
+        // REQ-27: the application's layers, in the order they were added.
+        let router = self
+            .layers
+            .iter()
+            .fold(router, |router, apply| apply(router));
+        let router = router.layer(axum::middleware::from_fn_with_state(
+            Arc::clone(&self.shared),
+            crate::server::node_compat,
+        ));
         // OTEL-02: the server span covers every response, Express's own included.
         #[cfg(feature = "otel")]
         let router = router.layer(axum::middleware::from_fn(crate::otel::server_span));
