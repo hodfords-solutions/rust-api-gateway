@@ -856,5 +856,50 @@ async fn closing_response(response: Response<axum::body::Body>, x_powered_by: bo
     out
 }
 
+#[cfg(fuzzing)]
+pub(crate) mod fuzzing {
+    //! The upstream side of the WebSocket proxy, for the fuzz targets.
+
+    use bytes::BytesMut;
+    use http::Version;
+
+    use super::{UpstreamBody, parse_response_head, refusal_line};
+
+    /// What the proxy makes of an upstream's answer to an upgrade request.
+    #[derive(Debug)]
+    pub struct UpstreamResponse {
+        /// The status code.
+        pub status: u16,
+        /// The status line written to an HTTP/1.1 client when the upstream refuses (WS-15).
+        pub refusal_line: String,
+        /// Node's `res.headers` names, in order.
+        pub header_names: Vec<String>,
+        /// The decoded body, or the error that ended it.
+        pub body: std::io::Result<Vec<u8>>,
+    }
+
+    /// Parses `head` as the upstream's response head and decodes `rest` as the bytes that
+    /// followed it on the connection, until the body ends or the bytes run out.
+    pub fn upstream_response(head: &[u8], rest: &[u8]) -> Option<UpstreamResponse> {
+        let response = parse_response_head(head)?;
+        let runtime = tokio::runtime::Builder::new_current_thread().build().ok()?;
+        let body = runtime.block_on(async {
+            let mut reader = rest;
+            let mut body = UpstreamBody::new(&response, BytesMut::new());
+            let mut out = Vec::new();
+            while let Some(data) = body.next(&mut reader).await? {
+                out.extend_from_slice(&data);
+            }
+            Ok(out)
+        });
+        Some(UpstreamResponse {
+            status: response.status,
+            refusal_line: refusal_line(Version::HTTP_11, response.status, &response.reason),
+            header_names: response.headers.iter().map(|(n, _)| n.clone()).collect(),
+            body,
+        })
+    }
+}
+
 #[cfg(test)]
 mod tests;

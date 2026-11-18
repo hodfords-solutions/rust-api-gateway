@@ -92,6 +92,12 @@ pub fn transform_document(
     Ok(json::stringify(&json::JsValue::Object(document)))
 }
 
+/// `JSON.stringify(JSON.parse(text))` with this module's JSON (for the fuzz targets).
+#[cfg(fuzzing)]
+pub(crate) fn json_round_trip(text: &str) -> Option<String> {
+    json::parse(text).ok().map(|value| json::stringify(&value))
+}
+
 /// The value of the `type` query parameter, as Express 5 reads it (`node:querystring`):
 /// decoded, and a repeated parameter joined with `,` (an array used as a property key).
 /// `None` when the query has no `type`.
