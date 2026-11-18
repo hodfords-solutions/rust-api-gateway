@@ -1,0 +1,537 @@
+{
+  "openapi": "3.0.0",
+  "paths": {
+    "/v1/users": {
+      "get": {
+        "description": "Returns every user.",
+        "operationId": "UsersController_listUsers",
+        "parameters": [
+          {
+            "name": "page",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "type": "number"
+            }
+          },
+          {
+            "name": "sort",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "enum": [
+                "asc",
+                "desc"
+              ],
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "summary": "List users",
+        "tags": [
+          "users"
+        ],
+        "x-api-mcp": [
+          {
+            "description": "List users"
+          }
+        ]
+      },
+      "post": {
+        "operationId": "UsersController_createUser",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "description": "The new user",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateUserDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "summary": "Create a user",
+        "tags": [
+          "users"
+        ],
+        "x-rate-limits": [
+          {
+            "limit": 1,
+            "ttl": 60,
+            "status": 201
+          }
+        ]
+      }
+    },
+    "/v1/users/{id}": {
+      "get": {
+        "operationId": "UsersController_getUser",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "x-request-id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "Permission-In-Any-Guard",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "auth-user-id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "auth-user-id": []
+          }
+        ],
+        "summary": "Get a user",
+        "tags": [
+          "users"
+        ]
+      },
+      "put": {
+        "operationId": "UsersController_replaceUser",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateUserDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "x-api-key": []
+          }
+        ],
+        "tags": [
+          "users"
+        ]
+      },
+      "patch": {
+        "operationId": "UsersController_updateUser",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "x-api-key": []
+          },
+          {
+            "auth-user-id": []
+          }
+        ],
+        "tags": [
+          "users"
+        ]
+      },
+      "delete": {
+        "operationId": "UsersController_deleteUser",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "users"
+        ]
+      },
+      "head": {
+        "operationId": "UsersController_headUser",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "users"
+        ]
+      }
+    },
+    "/v1/users/me": {
+      "get": {
+        "operationId": "UsersController_getMe",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "The current user",
+        "tags": [
+          "users"
+        ]
+      }
+    },
+    "/v1/limits/plain": {
+      "get": {
+        "operationId": "LimitsController_plain",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "limits"
+        ],
+        "x-rate-limits": [
+          {
+            "limit": 2,
+            "ttl": 60
+          }
+        ]
+      }
+    },
+    "/v1/limits/on-status": {
+      "post": {
+        "operationId": "LimitsController_onStatus",
+        "parameters": [],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "limits"
+        ],
+        "x-rate-limits": [
+          {
+            "limit": 1,
+            "ttl": 60,
+            "status": 201
+          }
+        ]
+      }
+    },
+    "/v1/limits/stacked": {
+      "get": {
+        "operationId": "LimitsController_stacked",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "limits"
+        ],
+        "x-rate-limits": [
+          {
+            "limit": 5,
+            "ttl": 7200
+          },
+          {
+            "limit": 3,
+            "ttl": 60
+          }
+        ]
+      }
+    },
+    "/v1/limits/stacked-status": {
+      "get": {
+        "operationId": "LimitsController_stackedStatus",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "limits"
+        ],
+        "x-rate-limits": [
+          {
+            "limit": 1,
+            "ttl": 3600,
+            "status": 404
+          },
+          {
+            "limit": 2,
+            "ttl": 60
+          }
+        ]
+      }
+    },
+    "/v1/paths/files/{path}": {
+      "get": {
+        "operationId": "PathsController_files",
+        "parameters": [
+          {
+            "name": "path",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "paths"
+        ],
+        "x-router-path": "/v1/paths/files/*path"
+      }
+    },
+    "/v1/paths/optional": {
+      "get": {
+        "operationId": "PathsController_optional",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "paths"
+        ],
+        "x-router-path": "/v1/paths/optional{/:id}"
+      }
+    },
+    "/v1/paths/escaped": {
+      "get": {
+        "operationId": "PathsController_escaped",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "paths"
+        ],
+        "x-router-path": "/v1/paths/escaped\\:literal"
+      }
+    },
+    "/v1/paths/anonymous/{slug}": {
+      "get": {
+        "parameters": [
+          {
+            "name": "slug",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "paths"
+        ]
+      }
+    },
+    "/v1/paths/trees": {
+      "post": {
+        "operationId": "PathsController_createTree",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TreeNodeDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "paths"
+        ]
+      }
+    }
+  },
+  "info": {
+    "title": "users-service",
+    "description": "Conformance fixture users-service",
+    "version": "1.0",
+    "contact": {}
+  },
+  "tags": [],
+  "servers": [],
+  "components": {
+    "securitySchemes": {
+      "bearer": {
+        "scheme": "bearer",
+        "bearerFormat": "JWT",
+        "type": "http"
+      },
+      "auth-user-id": {
+        "type": "apiKey",
+        "in": "header",
+        "name": "auth-user-id"
+      },
+      "x-api-key": {
+        "type": "apiKey",
+        "in": "header",
+        "name": "x-api-key"
+      }
+    },
+    "schemas": {
+      "AddressDto": {
+        "type": "object",
+        "properties": {
+          "street": {
+            "type": "string",
+            "description": "Street line"
+          },
+          "city": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "street",
+          "city"
+        ]
+      },
+      "CreateUserDto": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "Display name"
+          },
+          "homeAddress": {
+            "$ref": "#/components/schemas/AddressDto"
+          },
+          "workAddress": {
+            "$ref": "#/components/schemas/AddressDto"
+          },
+          "tags": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "name",
+          "homeAddress",
+          "workAddress"
+        ]
+      },
+      "TreeNodeDto": {
+        "type": "object",
+        "properties": {
+          "label": {
+            "type": "string"
+          },
+          "children": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/TreeNodeDto"
+            }
+          }
+        },
+        "required": [
+          "label",
+          "children"
+        ]
+      }
+    }
+  }
+}

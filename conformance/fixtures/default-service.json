@@ -1,0 +1,124 @@
+{
+  "openapi": "3.0.0",
+  "paths": {
+    "/oauth/token": {
+      "post": {
+        "operationId": "OauthController_token",
+        "parameters": [],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "oauth"
+        ],
+        "x-rate-limits": [
+          {
+            "limit": 2,
+            "ttl": 60
+          }
+        ]
+      }
+    },
+    "/oauth/authorize": {
+      "get": {
+        "operationId": "OauthController_authorize",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "oauth"
+        ]
+      }
+    },
+    "/health": {
+      "get": {
+        "operationId": "DefaultController_health",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "default"
+        ]
+      }
+    },
+    "/v1/items/{id}": {
+      "get": {
+        "operationId": "DefaultController_item",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "default"
+        ]
+      }
+    },
+    "/v1/limits/plain": {
+      "get": {
+        "operationId": "DefaultController_plain",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "default"
+        ],
+        "x-rate-limits": [
+          {
+            "limit": 2,
+            "ttl": 60
+          }
+        ]
+      }
+    }
+  },
+  "info": {
+    "title": "default-service",
+    "description": "Conformance fixture default-service",
+    "version": "1.0",
+    "contact": {}
+  },
+  "tags": [],
+  "servers": [],
+  "components": {
+    "securitySchemes": {
+      "bearer": {
+        "scheme": "bearer",
+        "bearerFormat": "JWT",
+        "type": "http"
+      },
+      "auth-user-id": {
+        "type": "apiKey",
+        "in": "header",
+        "name": "auth-user-id"
+      },
+      "x-api-key": {
+        "type": "apiKey",
+        "in": "header",
+        "name": "x-api-key"
+      }
+    },
+    "schemas": {}
+  }
+}
