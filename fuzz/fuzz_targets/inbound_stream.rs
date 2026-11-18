@@ -11,7 +11,7 @@
 #![no_main]
 
 use api_gateway::fuzzing::inbound;
-use api_gateway_fuzz::{has_bare_lf, hyper_heads, skip_open_finding};
+use api_gateway_fuzz::hyper_heads;
 use libfuzzer_sys::fuzz_target;
 
 // Input: one control byte, then the bytes the client sends. The control byte's low bit holds
@@ -39,19 +39,6 @@ fuzz_target!(|data: &[u8]| {
     let split = inbound(chunks.iter().copied(), hold_upgrades);
     assert_eq!(whole, split, "output depends on how the bytes were split");
 
-    // FUZZ-01: a head ended by a bare `\n\n` is not found, so the heads after it reach
-    // hyper unrewritten.
-    if skip_open_finding("FUZZ-01") && has_bare_lf(stream) {
-        return;
-    }
-    // FUZZ-05: empty lines before the first request line make the rest of the connection
-    // opaque.
-    let first_end = stream.windows(4).position(|w| w == b"\r\n\r\n");
-    if skip_open_finding("FUZZ-05")
-        && first_end.is_some_and(|end| stream[..end].iter().all(|b| matches!(b, b'\r' | b'\n')))
-    {
-        return;
-    }
     for head in hyper_heads(&whole.to_hyper) {
         assert!(
             head.target.iter().all(|&b| b <= 0x7e),

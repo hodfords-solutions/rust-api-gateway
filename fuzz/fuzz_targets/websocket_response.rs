@@ -5,7 +5,6 @@
 #![no_main]
 
 use api_gateway::fuzzing::upstream_response;
-use api_gateway_fuzz::{has_bare_lf, skip_open_finding};
 use libfuzzer_sys::fuzz_target;
 
 fuzz_target!(|data: &[u8]| {
@@ -17,14 +16,8 @@ fuzz_target!(|data: &[u8]| {
     let Some(response) = upstream_response(head, rest) else {
         return;
     };
-    // FUZZ-02: a status line ended by a bare LF takes the next line into the reason phrase.
-    let status_line_end = head
-        .windows(2)
-        .position(|w| w == b"\r\n")
-        .unwrap_or(head.len());
-    let skip = skip_open_finding("FUZZ-02") && has_bare_lf(&head[..status_line_end]);
     assert!(
-        skip || !response.refusal_line.contains(['\r', '\n']),
+        !response.refusal_line.contains(['\r', '\n']),
         "refusal status line spans several lines: {:?}",
         response.refusal_line
     );

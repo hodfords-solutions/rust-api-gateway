@@ -23,9 +23,9 @@ permissions:
 
 env:
   CARGO_TERM_COLOR: always
-  # Open findings (docs/security/fuzzing.md) the targets step around, so that a run reports
-  # new problems instead of a documented one. Remove an ID when its finding is fixed.
-  FUZZ_SKIP_OPEN_FINDINGS: FUZZ-01,FUZZ-02,FUZZ-03,FUZZ-04,FUZZ-05
+  # Open findings (docs/security/fuzzing.md) the targets step around, comma-separated, so
+  # that a run reports new problems instead of a documented one. None are open.
+  FUZZ_SKIP_OPEN_FINDINGS: ""
 
 jobs:
   fuzz:

@@ -6,7 +6,6 @@
 //! Input: `pattern[\x1f pattern...] \0 path [\0 path...]` as (lossy) UTF-8.
 
 use api_gateway::route::PathPattern;
-use api_gateway_fuzz::skip_open_finding;
 use libfuzzer_sys::fuzz_target;
 
 fuzz_target!(|data: &[u8]| {
@@ -14,16 +13,6 @@ fuzz_target!(|data: &[u8]| {
     let mut fields = text.split('\0');
     let patterns: Vec<&str> = fields.next().unwrap_or("").split('\x1f').take(4).collect();
     let paths: Vec<&str> = fields.take(4).collect();
-    // FUZZ-03: matching time is exponential in the number of wildcards.
-    if skip_open_finding("FUZZ-03")
-        && patterns
-            .iter()
-            .map(|p| p.matches('*').count())
-            .sum::<usize>()
-            > 12
-    {
-        return;
-    }
     let Ok(pattern) = PathPattern::compile_all(&patterns) else {
         return;
     };

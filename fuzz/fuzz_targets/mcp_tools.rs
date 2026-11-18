@@ -5,15 +5,10 @@
 use api_gateway::mcp::{McpOptions, build_tools, normalize_schema_type};
 use api_gateway::openapi::{DocumentStore, SecurityKeys};
 use api_gateway::upstream::UpstreamService;
-use api_gateway_fuzz::skip_open_finding;
 use libfuzzer_sys::fuzz_target;
 use serde_json::Value;
 
 fuzz_target!(|data: &[u8]| {
-    // FUZZ-04: shared `$ref`s expand exponentially (Deviation D8).
-    if skip_open_finding("FUZZ-04") && data.windows(4).filter(|w| w == b"$ref").count() > 12 {
-        return;
-    }
     let Ok(document) = serde_json::from_slice::<Value>(data) else {
         return;
     };
