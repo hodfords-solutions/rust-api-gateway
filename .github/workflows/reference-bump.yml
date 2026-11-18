@@ -1,0 +1,98 @@
+name: Bump Reference Gateway
+
+# Every Monday, move conformance/reference to the latest npm release of
+# @hodfords/nestjs-api-gateway and open a pull request, so the Conformance Tests show
+# whether the new release changed observable behaviour.
+#
+# Pull requests opened with the default GITHUB_TOKEN do not trigger other workflows, so
+# this workflow runs the suite itself and reports the result in the pull request. Set the
+# REFERENCE_BUMP_TOKEN secret (a token allowed to push branches and open pull requests) to
+# have CI run on the pull request as well.
+
+on:
+  schedule:
+    - cron: '0 6 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+env:
+  CARGO_TERM_COLOR: always
+  PACKAGE: '@hodfords/nestjs-api-gateway'
+
+jobs:
+  bump:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          package_json_file: conformance/reference/package.json
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      - name: Compare versions
+        id: versions
+        run: |
+          current=$(node -p "require('./conformance/reference/package.json').dependencies['$PACKAGE']")
+          latest=$(npm view "$PACKAGE" version)
+          echo "current=$current" >> "$GITHUB_OUTPUT"
+          echo "latest=$latest" >> "$GITHUB_OUTPUT"
+          echo "Pinned $current, latest $latest"
+
+      - name: Bump the reference app
+        if: steps.versions.outputs.current != steps.versions.outputs.latest
+        working-directory: conformance/reference
+        run: pnpm add --save-exact "$PACKAGE@${{ steps.versions.outputs.latest }}"
+
+      - uses: dtolnay/rust-toolchain@stable
+        if: steps.versions.outputs.current != steps.versions.outputs.latest
+      - uses: Swatinem/rust-cache@v2
+        if: steps.versions.outputs.current != steps.versions.outputs.latest
+
+      - name: Run the Conformance Tests against the new reference
+        id: conformance
+        if: steps.versions.outputs.current != steps.versions.outputs.latest
+        continue-on-error: true
+        run: |
+          docker compose -f conformance/docker-compose.yml up -d --wait
+          (cd conformance/reference && pnpm build)
+          cargo test -p conformance --features conformance 2>&1 | tee conformance-output.txt
+          exit "${PIPESTATUS[0]}"
+
+      - name: Write the pull request body
+        if: steps.versions.outputs.current != steps.versions.outputs.latest
+        run: |
+          {
+            echo "Bumps \`$PACKAGE\` in \`conformance/reference\` from ${{ steps.versions.outputs.current }} to ${{ steps.versions.outputs.latest }}."
+            echo
+            echo "Conformance Tests against the new reference: **${{ steps.conformance.outcome }}**."
+            echo
+            echo "A failure means the Reference Gateway changed observable behaviour. Review the failing"
+            echo "scenarios and the Parity Checklist (\`docs/parity/\`) before merging; checklist line"
+            echo "numbers still refer to the version named in \`docs/parity/README.md\`."
+            echo
+            echo '<details><summary>Test summary</summary>'
+            echo
+            echo '```'
+            grep -E '^(test |test result|thread .* panicked)' conformance-output.txt | tail -60 || true
+            echo '```'
+            echo '</details>'
+          } > pr-body.md
+          rm -f conformance-output.txt
+
+      - name: Open the pull request
+        if: steps.versions.outputs.current != steps.versions.outputs.latest
+        uses: peter-evans/create-pull-request@v7
+        with:
+          token: ${{ secrets.REFERENCE_BUMP_TOKEN || github.token }}
+          branch: chore/reference-gateway-${{ steps.versions.outputs.latest }}
+          commit-message: 'chore(conformance): bump Reference Gateway to ${{ steps.versions.outputs.latest }}'
+          title: 'chore(conformance): bump Reference Gateway to ${{ steps.versions.outputs.latest }}'
+          body-path: pr-body.md
+          add-paths: |
+            conformance/reference/package.json
+            conformance/reference/pnpm-lock.yaml
