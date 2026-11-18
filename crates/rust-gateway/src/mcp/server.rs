@@ -127,7 +127,12 @@ impl ServerHandler for GatewayMcpServer {
             }
         };
         let arguments = request.arguments.unwrap_or_default();
-        let result = self.executor.call(&request.name, &arguments, parts).await;
+        let call = self.executor.call(&request.name, &arguments, parts);
+        // OTEL-03: the tool call's client span is a child of the `/mcp` request's server span.
+        #[cfg(feature = "otel")]
+        let result = crate::otel::in_request_context(&parts.extensions, call).await;
+        #[cfg(not(feature = "otel"))]
+        let result = call.await;
         let mut response = CallToolResult::success(vec![ContentBlock::text(result.text)]);
         response.is_error = result.is_error.then_some(true);
         Ok(response.into())

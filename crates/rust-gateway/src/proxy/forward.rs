@@ -99,9 +99,27 @@ pub(crate) async fn forward(
         ),
     };
     headers.append(header::CONNECTION, HeaderValue::from_static("keep-alive"));
+    // OTEL-03, OTEL-04: while tracing is started, the client span's `traceparent` (and
+    // `tracestate`) replace the client's, at the end of the list, where undici's
+    // instrumentation adds them.
+    #[cfg(feature = "otel")]
+    let trace = client_span(shared, &outgoing, &target, &list);
+    #[cfg(feature = "otel")]
+    let replaced =
+        |name: &HeaderName| trace.is_some() && crate::otel::is_trace_header(name.as_str());
+    #[cfg(not(feature = "otel"))]
+    let replaced = |_: &HeaderName| false;
     for (name, value) in list {
-        if name != header::HOST && name != header::CONTENT_LENGTH {
+        if name != header::HOST && name != header::CONTENT_LENGTH && !replaced(&name) {
             headers.append(name, value);
+        }
+    }
+    #[cfg(feature = "otel")]
+    if let Some(span) = &trace {
+        for (name, value) in span.trace_headers() {
+            if let Ok(value) = HeaderValue::from_str(&value) {
+                headers.append(name, value);
+            }
         }
     }
     match framing {
@@ -126,6 +144,10 @@ pub(crate) async fn forward(
 
     let response = pool.send(request).await.map_err(|error| {
         tracing::warn!(%error, "upstream request failed");
+        #[cfg(feature = "otel")]
+        if let Some(span) = &trace {
+            span.fail(&error, error.trace_type());
+        }
         GatewayError::UpstreamUnavailable
     })?;
     let (mut parts, upstream) = response.into_parts();
@@ -149,7 +171,42 @@ pub(crate) async fn forward(
     if let Some(after) = after_response {
         client_body = client_body.on_end(move || after.count(status));
     }
+    // The client span ends with the upstream response's body, as undici's does.
+    #[cfg(feature = "otel")]
+    if let Some(span) = trace {
+        span.response(status);
+        client_body = client_body.on_end(move || drop(span));
+    }
     Ok(Response::from_parts(parts, Body::new(client_body)))
+}
+
+/// The client span of a forwarded request (OTEL-03), when tracing is started.
+#[cfg(feature = "otel")]
+fn client_span(
+    shared: &Shared,
+    outgoing: &Outgoing<'_>,
+    target: &str,
+    list: &[(HeaderName, HeaderValue)],
+) -> Option<crate::otel::ClientSpan> {
+    if !crate::otel::is_started() {
+        return None;
+    }
+    let host = &shared
+        .options
+        .api_services
+        .iter()
+        .find(|service| service.prefix == outgoing.prefix)?
+        .host;
+    let user_agent = list
+        .iter()
+        .rev()
+        .find(|(name, _)| name == header::USER_AGENT)
+        .and_then(|(_, value)| value.to_str().ok());
+    crate::otel::ClientSpan::start(
+        outgoing.method.as_str(),
+        &format!("{}{target}", host.trim_end_matches('/')),
+        user_agent,
+    )
 }
 
 /// The client's response for a gateway error: the renderer's status, headers and body (REQ-23,

@@ -19,6 +19,8 @@ pub mod handler;
 #[cfg(feature = "mcp")]
 pub mod mcp;
 pub mod openapi;
+#[cfg(feature = "otel")]
+pub mod otel;
 mod proxy;
 pub mod rate_limit;
 pub mod request;

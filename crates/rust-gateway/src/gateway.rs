@@ -597,13 +597,20 @@ impl Gateway {
             let gateway = gateway.clone();
             async move { crate::endpoints::dispatch(&gateway.shared, request).await }
         };
-        self.routes
-            .clone()
+        let routes = self.routes.clone();
+        // OTEL-02: the matched route names an application route's server span.
+        #[cfg(feature = "otel")]
+        let routes = routes.layer(axum::middleware::from_fn(crate::otel::record_matched_path));
+        let router = routes
             .fallback(fallback)
             .layer(axum::middleware::from_fn_with_state(
                 Arc::clone(&self.shared),
                 crate::server::node_compat,
-            ))
+            ));
+        // OTEL-02: the server span covers every response, Express's own included.
+        #[cfg(feature = "otel")]
+        let router = router.layer(axum::middleware::from_fn(crate::otel::server_span));
+        router
     }
 
     /// The current MCP tools (API-21, MCP-05 to MCP-13): a snapshot of the list `tools/list`

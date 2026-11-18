@@ -53,6 +53,23 @@ pub(crate) enum PoolError {
     HeadersTimeout,
 }
 
+impl PoolError {
+    /// The failure's `error.type` on a client span: the code undici gives it.
+    #[cfg(feature = "otel")]
+    pub(crate) fn trace_type(&self) -> &'static str {
+        match self {
+            Self::Connect(error) => match crate::otel::io_error_type(error) {
+                "Error" => "UND_ERR_CONNECT",
+                code => code,
+            },
+            Self::ConnectTimeout => "UND_ERR_CONNECT_TIMEOUT",
+            Self::Tls(_) => "ERR_TLS",
+            Self::Http(_) => "UND_ERR_SOCKET",
+            Self::HeadersTimeout => "UND_ERR_HEADERS_TIMEOUT",
+        }
+    }
+}
+
 /// Where an Upstream Service is reached.
 #[derive(Debug, Clone)]
 pub(crate) struct Origin {
@@ -94,6 +111,12 @@ impl Origin {
 
     pub(crate) fn authority(&self) -> &str {
         &self.authority
+    }
+
+    /// `http` or `https`.
+    #[cfg(all(feature = "otel", feature = "mcp"))]
+    pub(crate) fn scheme(&self) -> &'static str {
+        if self.https { "https" } else { "http" }
     }
 }
 

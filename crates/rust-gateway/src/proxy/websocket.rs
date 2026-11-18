@@ -80,9 +80,36 @@ async fn proxy(
     early: Bytes,
     peer: SocketAddr,
 ) {
-    let outgoing = match prepare(shared, &head, peer).await {
+    // OTEL-03, OTEL-04: the upstream handshake's client span, a child of the client's trace
+    // context (an upgrade has no server span), started once the request is about to be
+    // written; its `traceparent` (and `tracestate`) are set like the reference's HTTP
+    // instrumentation sets them in `http.request`'s headers object.
+    #[cfg(feature = "otel")]
+    let mut trace: Option<crate::otel::ClientSpan> = None;
+    #[cfg(feature = "otel")]
+    let inject = |upstream: &UpstreamAddress, url: &str, user_agent: Option<&str>| {
+        trace = crate::otel::ClientSpan::start_from_headers(
+            head.headers
+                .iter()
+                .map(|(name, value)| (name.as_str(), value.as_bytes())),
+            head.method.as_str(),
+            &format!("http://{}:{}{url}", upstream.hostname, upstream.port),
+            user_agent,
+        );
+        trace
+            .as_ref()
+            .map(|span| span.trace_headers())
+            .unwrap_or_default()
+    };
+    #[cfg(not(feature = "otel"))]
+    let inject = |_: &UpstreamAddress, _: &str, _: Option<&str>| Vec::new();
+    let outgoing = match prepare(shared, &head, peer, inject).await {
         Ok(outgoing) => outgoing,
         Err(Refusal::Reject(error)) => {
+            #[cfg(feature = "otel")]
+            if let Some(span) = trace.take() {
+                span.fail(&error, "ERR_INVALID_CHAR");
+            }
             if let GatewayError::Internal {
                 source: Some(source),
             } = &error
@@ -98,6 +125,10 @@ async fn proxy(
     let mut upstream = match connect(&outgoing).await {
         Ok(upstream) => upstream,
         Err(error) => {
+            #[cfg(feature = "otel")]
+            if let Some(span) = &trace {
+                span.fail(&error, crate::otel::io_error_type(&error));
+            }
             tracing::debug!(%error, "WebSocket upstream unreachable");
             // `socket.end()`: no response (WS-16).
             let _ = client.shutdown().await;
@@ -108,11 +139,20 @@ async fn proxy(
     let response = match read_response_head(&mut upstream, &mut buffer).await {
         Ok(response) => response,
         Err(error) => {
+            #[cfg(feature = "otel")]
+            if let Some(span) = &trace {
+                span.fail(&error, crate::otel::io_error_type(&error));
+            }
             tracing::debug!(%error, "WebSocket upstream failed before its response");
             let _ = client.shutdown().await;
             return;
         }
     };
+    // The client span covers the handshake, not the tunnel.
+    #[cfg(feature = "otel")]
+    if let Some(span) = trace.take() {
+        span.response(response.status);
+    }
     if response.status == 101 {
         let first = switching_protocols(&response, &buffer);
         if let Err(error) = splice(client, upstream, &first, &early).await {
@@ -146,10 +186,13 @@ struct Outgoing {
 }
 
 /// Steps 1 to 4 (see the [module docs](self)).
+/// `inject` gives the trace headers of the upstream request (OTEL-04), from the upstream's
+/// address, the request target and the client's `user-agent`.
 async fn prepare(
     shared: &Arc<Shared>,
     head: &UpgradeHead,
     peer: SocketAddr,
+    inject: impl FnOnce(&UpstreamAddress, &str, Option<&str>) -> Vec<(&'static str, String)>,
 ) -> Result<Outgoing, Refusal> {
     // WS-02.
     let url = normalize_request_url(&head.target).map_err(GatewayError::internal)?;
@@ -207,11 +250,17 @@ async fn prepare(
         // `new URL(host)` throws; the build already rejects such hosts.
         return Err(Refusal::Drop);
     };
+    let user_agent = incoming.iter().find_map(|(name, value)| match value {
+        NodeHeaderValue::Single(value) if name == "user-agent" => std::str::from_utf8(value).ok(),
+        _ => None,
+    });
+    let trace = inject(&upstream, &url, user_agent);
     let request = upstream_request_head(
         &head.method,
         &url,
         incoming,
         &proxy_request.kebab_headers(),
+        &trace,
         &upstream,
     )?;
     Ok(Outgoing { upstream, request })
@@ -301,11 +350,16 @@ impl UpstreamAddress {
 /// Fails with [`GatewayError::UpstreamUnavailable`] when Node would throw on a middleware
 /// header: a name that is not a token, or a value with a character other than tab,
 /// printable ASCII and U+0080 to U+00FF.
+///
+/// `trace` (empty unless tracing is started, OTEL-04) is set last, as the reference's HTTP
+/// instrumentation sets it on the headers object: replacing a same-named header in place,
+/// appended otherwise.
 fn upstream_request_head(
     method: &Method,
     url: &str,
     incoming: Vec<(String, NodeHeaderValue)>,
     extra: &[(String, String)],
+    trace: &[(&'static str, String)],
     upstream: &UpstreamAddress,
 ) -> Result<Vec<u8>, GatewayError> {
     let mut merged: JsObject<NodeHeaderValue> = JsObject::new();
@@ -320,6 +374,12 @@ fn upstream_request_head(
             return Err(GatewayError::UpstreamUnavailable);
         }
         merged.insert(name.clone(), NodeHeaderValue::Single(bytes));
+    }
+    for (name, value) in trace {
+        merged.insert(
+            (*name).to_string(),
+            NodeHeaderValue::Single(value.clone().into_bytes()),
+        );
     }
     let entries = merged.into_entries();
     let has = |wanted: &str| entries.iter().any(|(n, _)| n.eq_ignore_ascii_case(wanted));

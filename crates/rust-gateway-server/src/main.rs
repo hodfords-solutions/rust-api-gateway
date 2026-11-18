@@ -8,10 +8,15 @@
 //!   environment (see [`config::sample_settings`]), with the sample's handlers and routes.
 //!
 //! Logs go to standard error; `RUST_LOG` filters them (default `info`).
+//!
+//! With the cargo feature `otel` (on by default) and `OTLP_URL` set, it also exports traces
+//! (see [`telemetry`]).
 
 mod config;
 mod protocol;
 mod sample;
+#[cfg(feature = "otel")]
+mod telemetry;
 
 use std::process::ExitCode;
 
@@ -34,6 +39,16 @@ fn main() -> ExitCode {
                 .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("info")),
         )
         .init();
+    // Declared before the runtime so that it is dropped after it: the last spans are flushed
+    // once the server has stopped.
+    #[cfg(feature = "otel")]
+    let _tracing = match telemetry::start() {
+        Ok(guard) => guard,
+        Err(error) => {
+            eprintln!("rust-gateway-server: {error}");
+            return ExitCode::FAILURE;
+        }
+    };
     let runtime = match tokio::runtime::Builder::new_multi_thread()
         .enable_all()
         .build()
