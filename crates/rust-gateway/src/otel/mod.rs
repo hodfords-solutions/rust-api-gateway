@@ -41,7 +41,7 @@ use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, PoisonError, RwLock};
 
 use opentelemetry::trace::TracerProvider as _;
-use opentelemetry_otlp::{Protocol, WithExportConfig as _};
+use opentelemetry_otlp::{Protocol, WithExportConfig as _, WithHttpConfig as _};
 use opentelemetry_sdk::Resource;
 use opentelemetry_sdk::error::OTelSdkResult;
 use opentelemetry_sdk::propagation::TraceContextPropagator;
@@ -90,6 +90,9 @@ pub enum StartError {
     /// The OTLP exporter could not be built (an invalid URL, for example).
     #[error("cannot build the OTLP exporter: {0}")]
     Exporter(#[from] opentelemetry_otlp::ExporterBuildError),
+    /// The exporter's HTTP client could not be built.
+    #[error("cannot build the OTLP exporter's HTTP client: {0}")]
+    HttpClient(String),
     /// The thread that builds the exporter failed.
     #[error("cannot build the OTLP exporter: its thread failed")]
     Thread,
@@ -102,7 +105,10 @@ pub enum StartError {
 /// with `service.name` (and the SDK's default resource attributes, which read
 /// `OTEL_RESOURCE_ATTRIBUTES`) on the resource. The exporter's other settings follow the
 /// standard `OTEL_EXPORTER_OTLP_*` variables (headers, timeout, compression), as the Node
-/// exporter's do. The provider and a W3C Trace Context propagator are also installed as
+/// exporter's do. An `https` collector is verified against Mozilla's root certificates,
+/// built in, as Node uses its bundled store: the host's trust store is never read, so a host
+/// without CA certificates can still start tracing (an application needing other roots
+/// builds its own exporter and passes it to [`start_with_provider`]). The provider and a W3C Trace Context propagator are also installed as
 /// OpenTelemetry's globals, as the Node SDK does, so application code can add its own spans
 /// under the gateway's.
 ///
@@ -118,8 +124,14 @@ pub fn start(options: &OpenTelemetryOptions) -> Result<TracingGuard, StartError>
     let service_name = options.service_name.clone();
     // The blocking HTTP client runs its own runtime; build it away from any async context.
     let provider = std::thread::spawn(move || {
+        let client = reqwest::blocking::Client::builder()
+            .tls_backend_preconfigured(crate::tls::default_client_config())
+            .timeout(export_timeout())
+            .build()
+            .map_err(|error| StartError::HttpClient(error.to_string()))?;
         let exporter = opentelemetry_otlp::SpanExporter::builder()
             .with_http()
+            .with_http_client(client)
             .with_protocol(Protocol::HttpBinary)
             .with_endpoint(endpoint)
             .build()?;
@@ -133,6 +145,22 @@ pub fn start(options: &OpenTelemetryOptions) -> Result<TracingGuard, StartError>
     .join()
     .map_err(|_| StartError::Thread)??;
     Ok(start_with_provider(provider))
+}
+
+/// The exporter's request timeout, read as the OTLP exporter reads it:
+/// `OTEL_EXPORTER_OTLP_TRACES_TIMEOUT`, else `OTEL_EXPORTER_OTLP_TIMEOUT` (milliseconds), else
+/// 10 seconds.
+fn export_timeout() -> std::time::Duration {
+    [
+        "OTEL_EXPORTER_OTLP_TRACES_TIMEOUT",
+        "OTEL_EXPORTER_OTLP_TIMEOUT",
+    ]
+    .iter()
+    .find_map(|name| std::env::var(name).ok()?.parse::<u64>().ok())
+    .map_or(
+        std::time::Duration::from_secs(10),
+        std::time::Duration::from_millis,
+    )
 }
 
 /// Starts tracing with a provider configured by the application (its own exporter, sampler

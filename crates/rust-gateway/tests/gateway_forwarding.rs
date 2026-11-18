@@ -1,5 +1,5 @@
-//! Rust-only tests of forwarding: `https` upstreams (FWD-19) and connection pooling
-//! (FWD-20, CFG-10).
+//! Rust-only tests of forwarding: `https` upstreams (FWD-19), startup without a system trust
+//! store, and connection pooling (FWD-20, CFG-10).
 
 mod gateway_common;
 
@@ -8,6 +8,8 @@ use std::time::{Duration, Instant};
 
 use gateway_common::{Upstream, client, options, serve};
 use rust_gateway::gateway::{Gateway, PoolOptions};
+use rust_gateway::openapi::{DocumentFetcher as _, HttpDocumentFetcher};
+use rust_gateway::upstream::UpstreamService;
 use rustls::pki_types::pem::PemObject;
 use rustls::pki_types::{CertificateDer, PrivateKeyDer};
 
@@ -89,6 +91,102 @@ async fn fwd_19_https_upstreams() {
         r#"{"message":"Service unavailable."}"#
     );
     assert_eq!(secure.seen().len(), 1, "nothing reached the upstream");
+}
+
+/// Set in the child process of [`startup_needs_no_system_trust_store`].
+const WITHOUT_TRUST_STORE: &str = "RUST_GATEWAY_TEST_WITHOUT_TRUST_STORE";
+
+/// FWD-19, OAS-01: a host without CA certificates (a container image without
+/// `ca-certificates`) starts the gateway. Runs [`trust_store_absent`] in a child process
+/// whose `SSL_CERT_FILE` and `SSL_CERT_DIR` name an empty file and an empty directory: on
+/// Linux that is a host with no trust store (what `rustls-native-certs` loads, and what a
+/// client verifying with the platform's roots fails to build without); elsewhere the
+/// variables change nothing and the same assertions still hold.
+#[test]
+fn startup_needs_no_system_trust_store() {
+    let dir = std::env::temp_dir().join(format!("rust-gateway-no-trust-{}", std::process::id()));
+    let certs = dir.join("certs");
+    std::fs::create_dir_all(&certs).expect("empty directory");
+    let file = dir.join("empty.pem");
+    std::fs::write(&file, b"").expect("empty file");
+    let output = std::process::Command::new(std::env::current_exe().expect("test binary"))
+        .args(["--exact", "trust_store_absent", "--nocapture"])
+        .env("SSL_CERT_FILE", &file)
+        .env("SSL_CERT_DIR", &certs)
+        .env(WITHOUT_TRUST_STORE, "1")
+        .output()
+        .expect("child test runs");
+    let _ = std::fs::remove_dir_all(&dir);
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(output.status.success(), "{stdout}\n{stderr}");
+    assert!(stdout.contains("1 passed"), "{stdout}\n{stderr}");
+}
+
+/// The child of [`startup_needs_no_system_trust_store`] (does nothing on its own): the
+/// gateway builds, plain `http` documents and upstreams work, an `https` upstream or
+/// document URL the default roots do not cover fails on its own request or fetch with the
+/// TLS error, and the application's TLS settings make both work.
+#[tokio::test]
+async fn trust_store_absent() {
+    if std::env::var_os(WITHOUT_TRUST_STORE).is_none() {
+        return;
+    }
+    let plain = Upstream::start().await;
+    let secure = Upstream::start_with(Some(server_tls())).await;
+    let mut https_upstream = plain.service("tls");
+    https_upstream.host = secure.origin();
+    let https_document_url = format!("{}/openapi.json", secure.origin());
+    let https_document = UpstreamService::new("doc", https_document_url.as_str(), plain.origin());
+    let services = vec![plain.service("svc"), https_upstream, https_document];
+
+    // Default TLS settings: the gateway builds and plain HTTP works.
+    let served = serve(Gateway::builder(options(services.clone())), true).await;
+    let get = |path: &str| client().get(served.url(path)).send();
+    let response = get("/svc/v1/users").await.unwrap();
+    assert_eq!(response.status(), 200);
+    assert_eq!(response.text().await.unwrap(), "upstream /v1/users/");
+    // The https upstream fails on its own request (FWD-22).
+    let response = get("/tls/v1/users").await.unwrap();
+    assert_eq!(response.status(), 503);
+    assert_eq!(
+        response.text().await.unwrap(),
+        r#"{"message":"Service unavailable."}"#
+    );
+    // The https document fails on its own fetch, with the TLS error.
+    let mut loaded = served.gateway.documents().loaded_services();
+    loaded.sort();
+    assert_eq!(loaded, ["svc", "tls"]);
+    let error = HttpDocumentFetcher::new()
+        .expect("the fetcher builds")
+        .fetch(&https_document_url)
+        .await
+        .expect_err("self-signed");
+    assert!(
+        error.to_string().contains("invalid peer certificate"),
+        "{error}"
+    );
+    drop(served);
+
+    // The application's TLS settings apply to upstreams and document URLs alike.
+    let served = serve(
+        Gateway::builder(options(services)).upstream_tls(client_tls_trusting_the_upstream()),
+        true,
+    )
+    .await;
+    let mut loaded = served.gateway.documents().loaded_services();
+    loaded.sort();
+    assert_eq!(loaded, ["doc", "svc", "tls"]);
+    for path in ["/tls/v1/users", "/doc/v1/users"] {
+        let response = client().get(served.url(path)).send().await.unwrap();
+        assert_eq!(response.status(), 200, "{path}");
+    }
+    let fetched = HttpDocumentFetcher::with_tls(client_tls_trusting_the_upstream(), None)
+        .expect("the fetcher builds")
+        .fetch(&https_document_url)
+        .await
+        .expect("trusted");
+    assert_eq!(fetched.status, 200);
 }
 
 /// FWD-20 and CFG-10: connections to an Upstream Service are pooled and reused; a

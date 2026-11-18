@@ -191,7 +191,8 @@ pub enum BuildError {
     /// An Upstream Service's `host` is not an `http` or `https` origin.
     #[error("{0}")]
     UpstreamOrigin(String),
-    /// The default document fetcher could not be created.
+    /// The default document fetcher could not be created (it never depends on the host's
+    /// trust store).
     #[error(transparent)]
     Fetcher(#[from] FetchError),
     /// [`GatewayBuilder::build`] was called outside a Tokio runtime.
@@ -380,8 +381,11 @@ impl GatewayBuilder {
         self
     }
 
-    /// The TLS settings for `https` upstreams (FWD-19). The default trusts Mozilla's root
-    /// certificates.
+    /// The TLS settings for `https` Upstream Services (FWD-19) and `https` document URLs
+    /// (OAS-01). The default trusts Mozilla's root certificates, built in, as Node trusts its
+    /// bundled store: the host's trust store is never read, so a host without CA
+    /// certificates still starts the gateway, and an `https` peer those roots do not cover
+    /// fails per request (503, FWD-22) or per document fetch, with the TLS error logged.
     pub fn upstream_tls(mut self, config: rustls::ClientConfig) -> Self {
         self.upstream_tls = Some(Arc::new(config));
         self
@@ -396,7 +400,9 @@ impl GatewayBuilder {
         }
         let options = self.options;
         let limiter = RateLimiter::new(&options.rate_limit, &options.redis)?;
-        let tls = self.upstream_tls.unwrap_or_else(default_upstream_tls);
+        let tls = self
+            .upstream_tls
+            .unwrap_or_else(|| Arc::new(crate::tls::default_client_config()));
         let mut pools = HashMap::new();
         for service in &options.api_services {
             let origin = Origin::parse(&service.host).map_err(BuildError::UpstreamOrigin)?;
@@ -424,7 +430,7 @@ impl GatewayBuilder {
         ));
         let fetcher: Arc<dyn DocumentFetcher> = match self.fetcher {
             Some(fetcher) => fetcher,
-            None => Arc::new(HttpDocumentFetcher::new()?),
+            None => Arc::new(HttpDocumentFetcher::with_tls((*tls).clone(), None)?),
         };
         let loader = DocumentLoader::new(Arc::clone(&store), Arc::clone(&fetcher)).start();
         let endpoints = Endpoints {
@@ -483,24 +489,6 @@ impl GatewayBuilder {
             routes: self.routes,
         })
     }
-}
-
-fn default_upstream_tls() -> Arc<rustls::ClientConfig> {
-    let roots = rustls::RootCertStore::from_iter(webpki_roots::TLS_SERVER_ROOTS.iter().cloned());
-    let config = rustls::ClientConfig::builder_with_provider(Arc::new(
-        rustls::crypto::ring::default_provider(),
-    ))
-    .with_safe_default_protocol_versions()
-    .map(|builder| {
-        builder
-            .with_root_certificates(roots.clone())
-            .with_no_client_auth()
-    });
-    Arc::new(config.unwrap_or_else(|_| {
-        rustls::ClientConfig::builder()
-            .with_root_certificates(roots)
-            .with_no_client_auth()
-    }))
 }
 
 /// State shared by every request.
