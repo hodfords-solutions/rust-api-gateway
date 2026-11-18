@@ -444,6 +444,10 @@ async fn read_response_head(
             if let Some(at) = buffer.windows(4).position(|w| w == b"\r\n\r\n") {
                 break at + 4;
             }
+            // Node's client fails on the first bare LF (`HPE_CR_EXPECTED`), FUZZ-02.
+            if has_bare_lf(buffer) {
+                return Err(invalid("bad upstream response head"));
+            }
             if buffer.len() > MAX_RESPONSE_HEAD {
                 return Err(invalid("upstream response head too large"));
             }
@@ -467,6 +471,11 @@ fn invalid(message: &'static str) -> std::io::Error {
 
 /// Parses a complete response head as Node's HTTP client accepts it.
 fn parse_response_head(raw: &[u8]) -> Option<ResponseHead> {
+    // `httparse` accepts lines ended by a bare LF; Node's client does not, and the reason
+    // phrase below is read up to the first CRLF (FUZZ-02).
+    if has_bare_lf(raw) {
+        return None;
+    }
     let mut storage = vec![httparse::EMPTY_HEADER; 2000];
     let mut response = httparse::Response::new(&mut storage);
     if !matches!(response.parse(raw), Ok(httparse::Status::Complete(_))) {
@@ -509,6 +518,13 @@ fn parse_response_head(raw: &[u8]) -> Option<ResponseHead> {
         has_content_length,
         chunked,
     })
+}
+
+/// Whether a line in `head` ends with a LF not preceded by CR.
+fn has_bare_lf(head: &[u8]) -> bool {
+    head.iter()
+        .enumerate()
+        .any(|(i, &b)| b == b'\n' && (i == 0 || head[i - 1] != b'\r'))
 }
 
 /// `ProxySocket.createHttpHeader`: the status line, one `name: value` line per value, and

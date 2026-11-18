@@ -549,15 +549,25 @@ fn strips_caller_supplied_excluded_headers_from_the_upgrade_request_itself() {
     );
 }
 
-// Open fuzz finding FUZZ-02 (docs/security/fuzzing.md): the reason phrase runs to the first
-// CRLF, so a status line ended by a bare LF takes the next header line with it into the
-// refusal line written to the client. Node's client rejects such a head (HPE_CR_EXPECTED).
+// FUZZ-02 (docs/security/fuzzing.md): a head with a bare-LF line is refused as Node's client
+// refuses it (`HPE_CR_EXPECTED`), so the refusal line written to the client is never more
+// than one line.
 #[test]
-#[ignore = "fuzz finding FUZZ-02: bare LF in the upstream status line reaches the refusal line"]
-fn fuzz_02_the_refusal_line_is_one_line() {
-    let raw = b"HTTP/1.1 401 Nope\nX-Injected: 1\r\nContent-Length: 0\r\n\r\n";
-    if let Some(response) = parse_response_head(raw) {
-        let line = refusal_line(Version::HTTP_11, response.status, &response.reason);
-        assert!(!line.contains(['\r', '\n']), "refusal line {line:?}");
+fn fuzz_02_a_head_with_bare_lf_lines_is_refused() {
+    for raw in [
+        &b"HTTP/1.1 401 Nope\nX-Injected: 1\r\nContent-Length: 0\r\n\r\n"[..],
+        b"HTTP/1.1 204 \n\r\n",
+        b"HTTP/1.1 401 Nope\r\nX: 1\nContent-Length: 0\r\n\r\n",
+    ] {
+        assert!(
+            parse_response_head(raw).is_none(),
+            "{:?}",
+            String::from_utf8_lossy(raw)
+        );
     }
+    let response = parse_response_head(b"HTTP/1.1 401 Nope\r\nX: 1\r\n\r\n").expect("valid");
+    assert_eq!(
+        refusal_line(Version::HTTP_11, response.status, &response.reason),
+        "HTTP/1.1 401 Nope"
+    );
 }
