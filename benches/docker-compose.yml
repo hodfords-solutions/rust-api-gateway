@@ -1,0 +1,65 @@
+# The end-to-end benchmark's containers. `benches/scripts/bench.py` drives this file (project
+# `rgw-bench`); see benches/README.md. Every CPU set and memory limit comes from the script,
+# so both gateways always get identical limits.
+name: rgw-bench
+
+x-gateway: &gateway
+  cpuset: ${RGW_GW_CPUS:-0}
+  mem_limit: ${RGW_GW_MEMORY:-1g}
+  memswap_limit: ${RGW_GW_MEMORY:-1g}
+  depends_on: [redis, upstream]
+  volumes:
+    - ${RGW_CONFIG:-./fixtures/gateway-config.json}:/bench/config.json:ro
+  restart: "no"
+
+services:
+  redis:
+    image: redis:7-alpine
+    command: ["redis-server", "--save", "", "--appendonly", "no"]
+    cpuset: ${RGW_REDIS_CPUS:-6}
+    mem_limit: 256m
+
+  upstream:
+    build:
+      context: ..
+      dockerfile: benches/docker/upstream.Dockerfile
+    image: rgw-bench-upstream
+    environment:
+      LISTEN: 0.0.0.0:5000
+      THREADS: ${RGW_UPSTREAM_THREADS:-2}
+    cpuset: ${RGW_UPSTREAM_CPUS:-4-5}
+    mem_limit: 512m
+    ports: ["127.0.0.1:47050:5000"]
+
+  rust:
+    <<: *gateway
+    build:
+      context: ..
+      dockerfile: benches/docker/rust-gateway.Dockerfile
+    image: rgw-bench-rust
+    environment:
+      GATEWAY_CONFIG: /bench/config.json
+      GATEWAY_MIDDLEWARE: bench
+      BENCH_JWT_SECRET: ${BENCH_JWT_SECRET:-}
+      REDIS_DB: "0"
+    ports: ["127.0.0.1:47080:3000"]
+
+  reference:
+    <<: *gateway
+    build:
+      context: ..
+      dockerfile: benches/docker/reference.Dockerfile
+    image: rgw-bench-reference
+    environment:
+      GATEWAY_CONFIG: /bench/config.json
+      BENCH_JWT_SECRET: ${BENCH_JWT_SECRET:-}
+      REDIS_DB: "1"
+    ports: ["127.0.0.1:47081:3000"]
+
+  oha:
+    image: ghcr.io/hatoo/oha:1.17.0
+    profiles: [load]
+    cpuset: ${RGW_OHA_CPUS:-7-9}
+    mem_limit: 1g
+    volumes:
+      - ./fixtures:/fixtures:ro

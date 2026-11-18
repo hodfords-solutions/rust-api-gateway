@@ -47,8 +47,22 @@ url = "2.5.8"
 webpki-roots = "1"
 
 [dev-dependencies]
+criterion = { version = "0.8.2", default-features = false, features = ["async_tokio", "cargo_bench_support"] }
 opentelemetry_sdk = { version = "0.33.1", default-features = false, features = ["trace", "testing"] }
 tokio = { version = "1.54.1", features = ["full", "test-util"] }
+
+# Micro-benchmarks of the hot paths; see benches/README.md at the repository root.
+# The library's own libtest bench harness is off so criterion's arguments reach criterion.
+[lib]
+bench = false
+
+[[bench]]
+name = "hot_paths"
+harness = false
+
+[[bench]]
+name = "pipeline"
+harness = false
 
 [lints]
 workspace = true

@@ -1,0 +1,21 @@
+[package]
+name = "bench-upstream"
+description = "Mock Upstream Service for the end-to-end benchmark: fast, and counts the requests that passed the gateway's middleware."
+version = "0.0.0"
+edition = "2024"
+license = "MIT"
+publish = false
+
+# Built on its own (in Docker), not as a member of the repository's workspace.
+[workspace]
+
+[dependencies]
+bytes = "1.12.2"
+http-body-util = "0.1.5"
+hyper = { version = "1.12.0", features = ["http1", "server"] }
+hyper-util = { version = "0.1.21", features = ["tokio"] }
+tokio = { version = "1.54.1", features = ["macros", "net", "rt-multi-thread"] }
+
+[profile.release]
+codegen-units = 1
+lto = "thin"

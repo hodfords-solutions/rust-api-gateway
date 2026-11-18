@@ -93,6 +93,28 @@ Regenerating the fixtures (only when a scenario needs a new shape; commit the ou
 cd conformance/fixture-generator && pnpm install --frozen-lockfile && pnpm generate
 ```
 
+## Benchmarks
+
+Run by hand, never in CI. Details, the scenarios and how to read the numbers: [benches/README.md](../benches/README.md); results: [benches/RESULTS.md](../benches/RESULTS.md).
+
+Micro-benchmarks of the request hot paths (criterion, about 7 minutes):
+
+```bash
+cargo bench -p rust-gateway
+```
+
+End-to-end load test of `rust-gateway-server` against the Reference Gateway in Docker (needs Docker with 10 CPUs and Python 3). The full run takes about an hour and needs a quiet machine; the smoke run takes a few seconds per point and only proves the tooling works:
+
+```bash
+python3 benches/scripts/bench.py
+```
+
+```bash
+python3 benches/scripts/bench.py --smoke
+```
+
+Both gateways run the benchmark middleware set EX-05 (JWT verification), which is an unconfirmed assumption about production middleware.
+
 ## Writing a scenario
 
 Scenarios live in `conformance/harness/tests/conformance/`, one module per area. A scenario is a `#[tokio::test]` that calls `runner::run(name, covers, |target| async move { ... })`:

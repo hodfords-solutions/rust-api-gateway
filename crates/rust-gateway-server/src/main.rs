@@ -12,6 +12,7 @@
 //! With the cargo feature `otel` (on by default) and `OTLP_URL` set, it also exports traces
 //! (see [`telemetry`]).
 
+mod bench;
 mod config;
 mod protocol;
 mod sample;
@@ -75,7 +76,11 @@ async fn run() -> Result<(), ConfigError> {
     let (settings, gateway) = match &conformance {
         Some(path) => {
             let settings = ConformanceConfig::load(path)?.into_settings()?;
-            let gateway = conformance_gateway(&settings)?;
+            let gateway = if bench::selected() {
+                bench::gateway(&settings)?
+            } else {
+                conformance_gateway(&settings)?
+            };
             (settings, gateway)
         }
         None => {
