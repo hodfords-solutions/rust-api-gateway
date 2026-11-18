@@ -44,6 +44,9 @@ async fn upstream_of(
     })
 }
 
+/// A change to a scenario's configuration.
+type Configure = Box<dyn FnOnce(GatewayConfig) -> GatewayConfig + Send>;
+
 /// Two services: `svc` (users fixture) and `other` (default-service fixture).
 async fn two_services(
     target: &Target,
@@ -82,59 +85,71 @@ fn initialize(version: &str) -> Value {
 /// case or a trailing slash); other methods and paths go to the proxy.
 #[tokio::test]
 async fn mcp_01_endpoint_routing() {
-    run("mcp_01_endpoint_routing", &["MCP-01"], |target| async move {
-        let mut obs = Observations::new();
-        let (mock, gw) = users_gateway(&target, |c| c).await?;
-        let pong = json!([{ "jsonrpc": "2.0", "id": 1, "result": {} }]);
-        for path in ["/mcp", "/mcp/", "/MCP", "/Mcp/", "/mcp?x=1"] {
-            let mut request = post(&ping());
-            request.target = path.to_string();
-            let response = gw.send(&request).await?;
-            let view = exchange_view(&response);
-            assert_eq!(view["status"], 200, "{path}");
-            assert_eq!(view["messages"], pong, "{path}");
-            obs.record(format!("POST {path}"), view);
-        }
-        for (method, path) in [
-            ("POST", "/mcp/x"),
-            ("POST", "//mcp"),
-            ("GET", "/mcp"),
-            ("DELETE", "/mcp"),
-            ("PUT", "/mcp"),
-        ] {
-            let response = gw
-                .send(&Request::new(method, path).header("Accept", ACCEPT))
-                .await?;
-            // No Service Prefix or Direct Prefix claims `/mcp`, and there is no Default
-            // Service.
-            assert_eq!(response.status, 503, "{method} {path}");
-            assert_eq!(
-                response.text(),
-                r#"{"message":"Service Unavailable","statusCode":503}"#
-            );
-            obs.record(format!("{method} {path}"), error_view(&response));
-        }
-        assert!(mock.requests().is_empty());
-        drop(gw);
+    run(
+        "mcp_01_endpoint_routing",
+        &["MCP-01"],
+        |target| async move {
+            let mut obs = Observations::new();
+            let (mock, gw) = users_gateway(&target, |c| c).await?;
+            let pong = json!([{ "jsonrpc": "2.0", "id": 1, "result": {} }]);
+            for path in ["/mcp", "/mcp/", "/MCP", "/Mcp/", "/mcp?x=1"] {
+                let mut request = post(&ping());
+                request.target = path.to_string();
+                let response = gw.send(&request).await?;
+                let view = exchange_view(&response);
+                assert_eq!(view["status"], 200, "{path}");
+                assert_eq!(view["messages"], pong, "{path}");
+                obs.record(format!("POST {path}"), view);
+            }
+            for (method, path) in [
+                ("POST", "/mcp/x"),
+                ("POST", "//mcp"),
+                ("GET", "/mcp"),
+                ("DELETE", "/mcp"),
+                ("PUT", "/mcp"),
+            ] {
+                let response = gw
+                    .send(&Request::new(method, path).header("Accept", ACCEPT))
+                    .await?;
+                // No Service Prefix or Direct Prefix claims `/mcp`, and there is no Default
+                // Service.
+                assert_eq!(response.status, 503, "{method} {path}");
+                assert_eq!(
+                    response.text(),
+                    r#"{"message":"Service Unavailable","statusCode":503}"#
+                );
+                obs.record(format!("{method} {path}"), error_view(&response));
+            }
+            assert!(mock.requests().is_empty());
+            drop(gw);
 
-        // A service that owns the Direct Prefix `mcp` receives every other method.
-        let mock = MockUpstream::start().await?;
-        mock.set_document_json(fixtures::USERS_SERVICE);
-        let gw = target
-            .start(GatewayConfig::new().service_with_direct("svc", &mock, &["mcp"]))
-            .await?;
-        let get = gw.send(&Request::get("/mcp").header("x-test-static", "1")).await?;
-        assert_eq!(get.status, 200);
-        let forwarded = mock.last_request().expect("GET /mcp forwarded");
-        assert_eq!((forwarded.method.as_str(), forwarded.target.as_str()), ("GET", "/mcp"));
-        obs.record("GET /mcp with Direct Prefix mcp", format!("{} {}", forwarded.method, forwarded.target));
-        mock.clear_requests();
-        let post_response = gw.send(&post(&ping())).await?;
-        assert_eq!(exchange_view(&post_response)["messages"], pong);
-        assert!(mock.requests().is_empty());
-        obs.record("POST /mcp with Direct Prefix mcp", "MCP endpoint");
-        Ok(obs)
-    })
+            // A service that owns the Direct Prefix `mcp` receives every other method.
+            let mock = MockUpstream::start().await?;
+            mock.set_document_json(fixtures::USERS_SERVICE);
+            let gw = target
+                .start(GatewayConfig::new().service_with_direct("svc", &mock, &["mcp"]))
+                .await?;
+            let get = gw
+                .send(&Request::get("/mcp").header("x-test-static", "1"))
+                .await?;
+            assert_eq!(get.status, 200);
+            let forwarded = mock.last_request().expect("GET /mcp forwarded");
+            assert_eq!(
+                (forwarded.method.as_str(), forwarded.target.as_str()),
+                ("GET", "/mcp")
+            );
+            obs.record(
+                "GET /mcp with Direct Prefix mcp",
+                format!("{} {}", forwarded.method, forwarded.target),
+            );
+            mock.clear_requests();
+            let post_response = gw.send(&post(&ping())).await?;
+            assert_eq!(exchange_view(&post_response)["messages"], pong);
+            assert!(mock.requests().is_empty());
+            obs.record("POST /mcp with Direct Prefix mcp", "MCP endpoint");
+            Ok(obs)
+        },
+    )
     .await;
 }
 
@@ -298,7 +313,10 @@ async fn mcp_03_server_info() {
         let mut obs = Observations::new();
         for (label, server_info) in [
             ("default", None),
-            ("name and version", Some(json!({ "name": "my-gateway", "version": "2.3.4" }))),
+            (
+                "name and version",
+                Some(json!({ "name": "my-gateway", "version": "2.3.4" })),
+            ),
             ("name only", Some(json!({ "name": "my-gateway" }))),
             ("empty strings", Some(json!({ "name": "", "version": "" }))),
         ] {
@@ -306,7 +324,10 @@ async fn mcp_03_server_info() {
                 users_gateway(&target, |c| c.mcp(|m| m.server_info = server_info.clone())).await?;
             let reply = mcp::send(gw.addr(), &post(&initialize("2025-06-18"))).await?;
             let result = reply.message.expect("initialize result")["result"].clone();
-            assert_eq!(result["capabilities"], json!({ "tools": { "listChanged": true } }));
+            assert_eq!(
+                result["capabilities"],
+                json!({ "tools": { "listChanged": true } })
+            );
             obs.record(
                 label,
                 json!({
@@ -338,22 +359,36 @@ async fn mcp_04_authentication() {
         let mut obs = Observations::new();
         let (mock, gw) = users_gateway(&target, |c| c).await?;
 
-        let deny = gw.send(&post(&ping()).header("x-test-mcp-auth", "deny")).await?;
+        let deny = gw
+            .send(&post(&ping()).header("x-test-mcp-auth", "deny"))
+            .await?;
         assert_eq!(deny.status, 401);
-        assert_eq!(deny.header("content-type"), Some("application/json; charset=utf-8"));
+        assert_eq!(
+            deny.header("content-type"),
+            Some("application/json; charset=utf-8")
+        );
         assert_eq!(deny.text(), r#"{"error":"Unauthorized"}"#);
         obs.record("deny", error_view(&deny));
 
         // Authentication runs before the body, Accept and content type are looked at.
         let deny_malformed = gw
-            .send(&Request::post("/mcp").header("x-test-mcp-auth", "deny").body("{"))
+            .send(
+                &Request::post("/mcp")
+                    .header("x-test-mcp-auth", "deny")
+                    .body("{"),
+            )
             .await?;
         assert_eq!(deny_malformed.status, 401);
         obs.record("deny with a malformed request", error_view(&deny_malformed));
 
-        let respond = gw.send(&post(&ping()).header("x-test-mcp-auth", "respond")).await?;
+        let respond = gw
+            .send(&post(&ping()).header("x-test-mcp-auth", "respond"))
+            .await?;
         assert_eq!(respond.status, 418);
-        assert_eq!(respond.text(), r#"{"message":"test mcp authentication response"}"#);
+        assert_eq!(
+            respond.text(),
+            r#"{"message":"test mcp authentication response"}"#
+        );
         obs.record("handler writes its own response", error_view(&respond));
 
         let respond_custom = gw
@@ -368,22 +403,32 @@ async fn mcp_04_authentication() {
         obs.record("handler writes 403", error_view(&respond_custom));
 
         // A handler that throws: Nest's unhandled-error answer.
-        let throws = gw.send(&post(&ping()).header("x-test-mcp-auth", "throw")).await?;
+        let throws = gw
+            .send(&post(&ping()).header("x-test-mcp-auth", "throw"))
+            .await?;
         assert_eq!(throws.status, 500);
-        assert_eq!(throws.text(), r#"{"statusCode":500,"message":"Internal server error"}"#);
+        assert_eq!(
+            throws.text(),
+            r#"{"statusCode":500,"message":"Internal server error"}"#
+        );
         obs.record("handler fails", error_view(&throws));
 
         let denied_call = gw
             .send(
-                &mcp::request("tools/call", json!({ "name": "svc_UsersController_getMe", "arguments": {} }))
-                    .header("x-test-mcp-auth", "deny"),
+                &mcp::request(
+                    "tools/call",
+                    json!({ "name": "svc_UsersController_getMe", "arguments": {} }),
+                )
+                .header("x-test-mcp-auth", "deny"),
             )
             .await?;
         assert_eq!(denied_call.status, 401);
         assert!(mock.requests().is_empty());
         obs.record("denied tools/call reaches no upstream", true);
 
-        let allow = gw.send(&post(&ping()).header("x-test-mcp-auth", "allow")).await?;
+        let allow = gw
+            .send(&post(&ping()).header("x-test-mcp-auth", "allow"))
+            .await?;
         assert_eq!(allow.status, 200);
         obs.record("allow", exchange_view(&allow));
         Ok(obs)
@@ -396,7 +441,7 @@ async fn mcp_04_authentication() {
 async fn mcp_06_tool_filters() {
     run("mcp_06_tool_filters", &["MCP-06"], |target| async move {
         let mut obs = Observations::new();
-        let configs: Vec<(&str, Box<dyn FnOnce(GatewayConfig) -> GatewayConfig + Send>)> = vec![
+        let configs: Vec<(&str, Configure)> = vec![
             ("no filter", Box::new(|c| c)),
             (
                 "allowedServices [other]",
@@ -480,21 +525,33 @@ async fn mcp_07_tool_names() {
         drop(gw);
 
         let template = "{serviceName}.{method}.{operationId}.{path}|{defaultName}";
-        let (users, _other, gw) = two_services(&target, |c| {
-            c.mcp(|m| m.tool_name = Some(template.into()))
-        })
-        .await?;
+        let (users, _other, gw) =
+            two_services(&target, |c| c.mcp(|m| m.tool_name = Some(template.into()))).await?;
         let names = tool_names(gw.addr()).await?;
-        assert!(names.contains(&"svc.get../v1/paths/anonymous/{slug}|svc_GET_v1_paths_anonymous_slug".to_string()), "{names:?}");
+        assert!(
+            names.contains(
+                &"svc.get../v1/paths/anonymous/{slug}|svc_GET_v1_paths_anonymous_slug".to_string()
+            ),
+            "{names:?}"
+        );
         obs.record("toolName template", &names);
 
         let renamed = "svc.get.UsersController_getMe./v1/users/me|svc_UsersController_getMe";
         let result = call_tool(gw.addr(), renamed, json!({})).await?;
         assert_eq!(result.get("isError"), None);
-        assert_eq!(users.last_request().expect("forwarded").target, "/v1/users/me/");
-        obs.record("call by the overridden name", users.last_request().map(|r| r.target));
+        assert_eq!(
+            users.last_request().expect("forwarded").target,
+            "/v1/users/me/"
+        );
+        obs.record(
+            "call by the overridden name",
+            users.last_request().map(|r| r.target),
+        );
         let old = call_tool(gw.addr(), "svc_UsersController_getMe", json!({})).await?;
-        assert_eq!(result_text(&old), "Tool not found: svc_UsersController_getMe");
+        assert_eq!(
+            result_text(&old),
+            "Tool not found: svc_UsersController_getMe"
+        );
         obs.record("call by the default name", old);
         Ok(obs)
     })
@@ -781,9 +838,15 @@ async fn mcp_16_middleware() {
         .await?;
         assert_eq!(result.get("isError"), None);
         let upstream = mock.last_request().expect("forwarded");
-        let seen: Value = serde_json::from_str(upstream.header("x-test-request").expect("x-test-request"))?;
+        let seen: Value =
+            serde_json::from_str(upstream.header("x-test-request").expect("x-test-request"))?;
         assert_eq!(seen["body"], args);
-        let names: Vec<&str> = seen["headers"].as_array().expect("names").iter().filter_map(Value::as_str).collect();
+        let names: Vec<&str> = seen["headers"]
+            .as_array()
+            .expect("names")
+            .iter()
+            .filter_map(Value::as_str)
+            .collect();
         assert!(names.contains(&"x-other"));
         assert!(!names.contains(&"auth-user-id"));
         assert!(!names.contains(&"permission-in-any-guard"));
@@ -792,15 +855,28 @@ async fn mcp_16_middleware() {
         for (mode, extra) in [
             ("deny", vec![]),
             ("throw", vec![]),
-            ("throw", vec![("x-test-error-body", r#"{"message":"custom","statusCode":499}"#), ("x-test-error-status", "499")]),
+            (
+                "throw",
+                vec![
+                    (
+                        "x-test-error-body",
+                        r#"{"message":"custom","statusCode":499}"#,
+                    ),
+                    ("x-test-error-status", "499"),
+                ],
+            ),
             ("throw", vec![("x-test-error-body", "plain text")]),
-            ("throw", vec![("x-test-error-body", r#"{"error":"no message"}"#)]),
+            (
+                "throw",
+                vec![("x-test-error-body", r#"{"error":"no message"}"#)],
+            ),
             ("crash", vec![]),
         ] {
             mock.clear_requests();
             let mut headers = vec![("x-test-middleware", mode)];
             headers.extend(extra.iter().copied());
-            let result = call_tool_with(gw.addr(), "svc_UsersController_getMe", json!({}), &headers).await?;
+            let result =
+                call_tool_with(gw.addr(), "svc_UsersController_getMe", json!({}), &headers).await?;
             assert_eq!(result["isError"], true);
             assert!(mock.requests().is_empty());
             eprintln!("{mode} {extra:?}: {}", result_text(&result));
@@ -808,8 +884,20 @@ async fn mcp_16_middleware() {
         }
 
         // Headers the middleware adds reach the upstream (kebab-cased).
-        let view = upstream_of(&gw, &mock, "svc_UsersController_getMe", json!({}), &[("x-test-auth-user", "42")]).await?;
-        assert!(view["headers"].as_array().expect("headers").contains(&json!("auth-user-id: 42")));
+        let view = upstream_of(
+            &gw,
+            &mock,
+            "svc_UsersController_getMe",
+            json!({}),
+            &[("x-test-auth-user", "42")],
+        )
+        .await?;
+        assert!(
+            view["headers"]
+                .as_array()
+                .expect("headers")
+                .contains(&json!("auth-user-id: 42"))
+        );
         obs.record("middleware headers", view);
         Ok(obs)
     })
@@ -820,143 +908,254 @@ async fn mcp_16_middleware() {
 /// Deviation D7 would encode).
 #[tokio::test]
 async fn mcp_17_upstream_request() {
-    run("mcp_17_upstream_request", &["MCP-17"], |target| async move {
-        let mut obs = Observations::new();
-        let (mock, gw) = users_gateway(&target, |c| c).await?;
-        let cases: Vec<(&str, &str, Value)> = vec![
-            ("path and trailing slash", "svc_UsersController_getUser", json!({ "path_id": "abc-1_2.3~x" })),
-            ("numeric path value", "svc_UsersController_getUser", json!({ "path_id": 12.0 })),
-            ("boolean path value", "svc_UsersController_getUser", json!({ "path_id": true })),
-            ("missing path argument", "svc_UsersController_getUser", json!({ "path_nope": "x" })),
-            ("no arguments, no path parameter", "svc_UsersController_getMe", json!({})),
-            ("unknown argument shapes", "svc_UsersController_getMe", json!({ "other": 1, "Path_x": 1, "bodyx": 2 })),
-            (
-                "query encoding",
-                "svc_UsersController_listUsers",
-                json!({
-                    "query_page": 1.50,
-                    "query_sort": "a b&c=d/\u{e9}?+*-._~!()'",
-                    "query_2": true,
-                    "query_n": null,
-                    "query_o": { "a": 1 },
-                    "query_arr": [1, [2, 3], null, { "x": 1 }],
-                    "query_big": 1e21,
-                    "query_small": 1e-7,
-                    "query_neg0": -0.0,
-                    "query_empty": "",
-                    "query_": "blank name",
-                    "query_a b": "space in name"
-                }),
-            ),
-            ("only empty query values", "svc_UsersController_listUsers", json!({ "query_a": "" })),
-            ("GET ignores the body", "svc_UsersController_getUser", json!({ "path_id": "7", "body": { "a": 1 } })),
-            ("DELETE ignores the body", "svc_UsersController_deleteUser", json!({ "path_id": "7", "body": { "a": 1 } })),
-            ("HEAD", "svc_UsersController_headUser", json!({ "path_id": "7" })),
-            ("POST without body", "svc_UsersController_createUser", json!({})),
-            ("POST with object body", "svc_UsersController_createUser", json!({ "body": { "b": 1.0, "a": [1, "x", null], "c": "\u{e9}", "d": 1e21 } })),
-            ("POST with string body", "svc_UsersController_createUser", json!({ "body": "str" })),
-            ("POST with empty object", "svc_UsersController_createUser", json!({ "body": {} })),
-            ("POST with empty array", "svc_UsersController_createUser", json!({ "body": [] })),
-            ("POST with 0", "svc_UsersController_createUser", json!({ "body": 0 })),
-            ("POST with false", "svc_UsersController_createUser", json!({ "body": false })),
-            ("POST with null", "svc_UsersController_createUser", json!({ "body": null })),
-            ("POST with empty string", "svc_UsersController_createUser", json!({ "body": "" })),
-            ("PUT with body", "svc_UsersController_replaceUser", json!({ "path_id": "7", "body": { "name": "n" } })),
-            ("PATCH with body", "svc_UsersController_updateUser", json!({ "path_id": "7", "body": [1] })),
-        ];
-        for (label, tool, args) in cases {
-            let view = upstream_of(&gw, &mock, tool, args, &[]).await?;
-            eprintln!("{label}: {view}");
-            obs.record(label, view);
-        }
-        let check = |label: &str, expected: &str| {
-            let entry = obs
-                .entries()
-                .iter()
-                .find(|(l, _)| l == label)
-                .map(|(_, v)| v.clone())
-                .unwrap_or(Value::Null);
-            assert_eq!(format!("{} {}", entry["method"].as_str().unwrap_or("?"), entry["target"].as_str().unwrap_or("?")), expected, "{label}");
-        };
-        check("path and trailing slash", "GET /v1/users/abc-1_2.3~x/");
-        check("numeric path value", "GET /v1/users/12/");
-        check("missing path argument", "GET /v1/users/{id}/");
-        check("only empty query values", "GET /v1/users/?a=");
-        check("HEAD", "HEAD /v1/users/7/");
-        check("POST without body", "POST /v1/users/");
-        Ok(obs)
-    })
+    run(
+        "mcp_17_upstream_request",
+        &["MCP-17"],
+        |target| async move {
+            let mut obs = Observations::new();
+            let (mock, gw) = users_gateway(&target, |c| c).await?;
+            let cases: Vec<(&str, &str, Value)> = vec![
+                (
+                    "path and trailing slash",
+                    "svc_UsersController_getUser",
+                    json!({ "path_id": "abc-1_2.3~x" }),
+                ),
+                (
+                    "numeric path value",
+                    "svc_UsersController_getUser",
+                    json!({ "path_id": 12.0 }),
+                ),
+                (
+                    "boolean path value",
+                    "svc_UsersController_getUser",
+                    json!({ "path_id": true }),
+                ),
+                (
+                    "missing path argument",
+                    "svc_UsersController_getUser",
+                    json!({ "path_nope": "x" }),
+                ),
+                (
+                    "no arguments, no path parameter",
+                    "svc_UsersController_getMe",
+                    json!({}),
+                ),
+                (
+                    "unknown argument shapes",
+                    "svc_UsersController_getMe",
+                    json!({ "other": 1, "Path_x": 1, "bodyx": 2 }),
+                ),
+                (
+                    "query encoding",
+                    "svc_UsersController_listUsers",
+                    json!({
+                        "query_page": 1.50,
+                        "query_sort": "a b&c=d/\u{e9}?+*-._~!()'",
+                        "query_2": true,
+                        "query_n": null,
+                        "query_o": { "a": 1 },
+                        "query_arr": [1, [2, 3], null, { "x": 1 }],
+                        "query_big": 1e21,
+                        "query_small": 1e-7,
+                        "query_neg0": -0.0,
+                        "query_empty": "",
+                        "query_": "blank name",
+                        "query_a b": "space in name"
+                    }),
+                ),
+                (
+                    "only empty query values",
+                    "svc_UsersController_listUsers",
+                    json!({ "query_a": "" }),
+                ),
+                (
+                    "GET ignores the body",
+                    "svc_UsersController_getUser",
+                    json!({ "path_id": "7", "body": { "a": 1 } }),
+                ),
+                (
+                    "DELETE ignores the body",
+                    "svc_UsersController_deleteUser",
+                    json!({ "path_id": "7", "body": { "a": 1 } }),
+                ),
+                (
+                    "HEAD",
+                    "svc_UsersController_headUser",
+                    json!({ "path_id": "7" }),
+                ),
+                (
+                    "POST without body",
+                    "svc_UsersController_createUser",
+                    json!({}),
+                ),
+                (
+                    "POST with object body",
+                    "svc_UsersController_createUser",
+                    json!({ "body": { "b": 1.0, "a": [1, "x", null], "c": "\u{e9}", "d": 1e21 } }),
+                ),
+                (
+                    "POST with string body",
+                    "svc_UsersController_createUser",
+                    json!({ "body": "str" }),
+                ),
+                (
+                    "POST with empty object",
+                    "svc_UsersController_createUser",
+                    json!({ "body": {} }),
+                ),
+                (
+                    "POST with empty array",
+                    "svc_UsersController_createUser",
+                    json!({ "body": [] }),
+                ),
+                (
+                    "POST with 0",
+                    "svc_UsersController_createUser",
+                    json!({ "body": 0 }),
+                ),
+                (
+                    "POST with false",
+                    "svc_UsersController_createUser",
+                    json!({ "body": false }),
+                ),
+                (
+                    "POST with null",
+                    "svc_UsersController_createUser",
+                    json!({ "body": null }),
+                ),
+                (
+                    "POST with empty string",
+                    "svc_UsersController_createUser",
+                    json!({ "body": "" }),
+                ),
+                (
+                    "PUT with body",
+                    "svc_UsersController_replaceUser",
+                    json!({ "path_id": "7", "body": { "name": "n" } }),
+                ),
+                (
+                    "PATCH with body",
+                    "svc_UsersController_updateUser",
+                    json!({ "path_id": "7", "body": [1] }),
+                ),
+            ];
+            for (label, tool, args) in cases {
+                let view = upstream_of(&gw, &mock, tool, args, &[]).await?;
+                eprintln!("{label}: {view}");
+                obs.record(label, view);
+            }
+            let check = |label: &str, expected: &str| {
+                let entry = obs
+                    .entries()
+                    .iter()
+                    .find(|(l, _)| l == label)
+                    .map(|(_, v)| v.clone())
+                    .unwrap_or(Value::Null);
+                assert_eq!(
+                    format!(
+                        "{} {}",
+                        entry["method"].as_str().unwrap_or("?"),
+                        entry["target"].as_str().unwrap_or("?")
+                    ),
+                    expected,
+                    "{label}"
+                );
+            };
+            check("path and trailing slash", "GET /v1/users/abc-1_2.3~x/");
+            check("numeric path value", "GET /v1/users/12/");
+            check("missing path argument", "GET /v1/users/{id}/");
+            check("only empty query values", "GET /v1/users/?a=");
+            check("HEAD", "HEAD /v1/users/7/");
+            check("POST without body", "POST /v1/users/");
+            Ok(obs)
+        },
+    )
     .await;
 }
 
 /// MCP-18: upstream headers.
 #[tokio::test]
 async fn mcp_18_upstream_headers() {
-    run("mcp_18_upstream_headers", &["MCP-18"], |target| async move {
-        let mut obs = Observations::new();
-        let (mock, gw) = users_gateway(&target, |c| c).await?;
+    run(
+        "mcp_18_upstream_headers",
+        &["MCP-18"],
+        |target| async move {
+            let mut obs = Observations::new();
+            let (mock, gw) = users_gateway(&target, |c| c).await?;
 
-        let plain = upstream_of(&gw, &mock, "svc_UsersController_getMe", json!({}), &[("x-custom", "c")]).await?;
-        assert_eq!(
-            plain["headers"],
-            json!(["host: 127.0.0.1:<port>", "connection: keep-alive", "content-type: application/json"])
-        );
-        obs.record("no header arguments; /mcp headers are not forwarded", plain);
+            let plain = upstream_of(
+                &gw,
+                &mock,
+                "svc_UsersController_getMe",
+                json!({}),
+                &[("x-custom", "c")],
+            )
+            .await?;
+            assert_eq!(
+                plain["headers"],
+                json!([
+                    "host: 127.0.0.1:<port>",
+                    "connection: keep-alive",
+                    "content-type: application/json"
+                ])
+            );
+            obs.record("no header arguments; /mcp headers are not forwarded", plain);
 
-        let args = json!({
-            "path_id": "7",
-            "header_x-request-id": "arg",
-            "header_Content-Type": "text/plain",
-            "header_content-type": "text/x",
-            "header_x-empty": "",
-            "header_Auth-User-Id": "spoof",
-            "header_permission-in-any-guard": "spoof",
-            "header_x-num": 0,
-            "header_x-false": false,
-            "header_x-null": null,
-            "header_7": "seven",
-            "header_X-Up": "Up"
-        });
-        let mixed = upstream_of(
-            &gw,
-            &mock,
-            "svc_UsersController_getUser",
-            args,
-            &[(
-                "x-test-add-headers",
-                r#"{"x-request-id":"mw","xEmpty":"","x-mw":"1","X-Up":"mw","x-num":""}"#,
-            )],
-        )
-        .await?;
-        assert_eq!(
-            mixed["headers"],
-            json!([
-                "host: 127.0.0.1:<port>",
-                "connection: keep-alive",
-                "content-type: text/x",
-                "7: seven",
-                "x-request-id: mw",
-                "content-type: text/plain",
-                "x-false: false",
-                "x-null: null",
-                "x-up: Up",
-                "x-mw: 1",
-                "x-up: mw"
-            ])
-        );
-        obs.record("precedence", mixed);
+            let args = json!({
+                "path_id": "7",
+                "header_x-request-id": "arg",
+                "header_Content-Type": "text/plain",
+                "header_content-type": "text/x",
+                "header_x-empty": "",
+                "header_Auth-User-Id": "spoof",
+                "header_permission-in-any-guard": "spoof",
+                "header_x-num": 0,
+                "header_x-false": false,
+                "header_x-null": null,
+                "header_7": "seven",
+                "header_X-Up": "Up"
+            });
+            let mixed = upstream_of(
+                &gw,
+                &mock,
+                "svc_UsersController_getUser",
+                args,
+                &[(
+                    "x-test-add-headers",
+                    r#"{"x-request-id":"mw","xEmpty":"","x-mw":"1","X-Up":"mw","x-num":""}"#,
+                )],
+            )
+            .await?;
+            assert_eq!(
+                mixed["headers"],
+                json!([
+                    "host: 127.0.0.1:<port>",
+                    "connection: keep-alive",
+                    "content-type: text/x",
+                    "7: seven",
+                    "x-request-id: mw",
+                    "content-type: text/plain",
+                    "x-false: false",
+                    "x-null: null",
+                    "x-up: Up",
+                    "x-mw: 1",
+                    "x-up: mw"
+                ])
+            );
+            obs.record("precedence", mixed);
 
-        let posted = upstream_of(
-            &gw,
-            &mock,
-            "svc_UsersController_createUser",
-            json!({ "body": { "a": 1 }, "header_x-a": "1" }),
-            &[("x-test-auth-user", "9")],
-        )
-        .await?;
-        obs.record("POST with body and middleware user", posted);
-        Ok(obs)
-    })
+            let posted = upstream_of(
+                &gw,
+                &mock,
+                "svc_UsersController_createUser",
+                json!({ "body": { "a": 1 }, "header_x-a": "1" }),
+                &[("x-test-auth-user", "9")],
+            )
+            .await?;
+            obs.record("POST with body and middleware user", posted);
+            Ok(obs)
+        },
+    )
     .await;
 }
 
