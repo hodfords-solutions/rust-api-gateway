@@ -10,5 +10,6 @@
 //! This crate is pre-parity: no gateway behaviour is implemented yet.
 
 pub mod openapi;
+pub mod rate_limit;
 pub mod route;
 pub mod upstream;

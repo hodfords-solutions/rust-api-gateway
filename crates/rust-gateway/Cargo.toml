@@ -8,17 +8,22 @@ publish.workspace = true
 
 [dependencies]
 arc-swap = "1.9.5"
+http = "1.5.0"
+redis = { version = "1.8.2", default-features = false, features = ["aio", "tokio-comp", "script"] }
 regex = "1.13.2"
 reqwest = { version = "0.13.5", default-features = false, features = ["rustls", "system-proxy"] }
+rustls = { version = "0.23.46", default-features = false, features = ["ring", "std", "tls12", "logging"] }
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = { version = "1.0.154", features = ["preserve_order"] }
 thiserror = "2.0.21"
-tokio = { version = "1.54.1", features = ["macros", "rt", "sync", "time"] }
+tokio = { version = "1.54.1", features = ["macros", "net", "rt", "sync", "time"] }
+tokio-rustls = { version = "0.26.6", default-features = false, features = ["ring", "tls12", "logging"] }
 tracing = "0.1.44"
 url = "2.5.8"
+webpki-roots = "1"
 
 [dev-dependencies]
-tokio = { version = "1.54.1", features = ["macros", "rt-multi-thread", "sync", "test-util", "time"] }
+tokio = { version = "1.54.1", features = ["full", "test-util"] }
 
 [lints]
 workspace = true

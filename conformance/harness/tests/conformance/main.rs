@@ -11,4 +11,5 @@ mod forwarding;
 mod mcp;
 mod openapi;
 mod pool;
+mod rate_limit;
 mod routes;
