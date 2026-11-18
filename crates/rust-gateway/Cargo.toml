@@ -1,0 +1,12 @@
+[package]
+name = "rust-gateway"
+description = "A Rust port of the @hodfords/nestjs-api-gateway library."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+
+[lints]
+workspace = true

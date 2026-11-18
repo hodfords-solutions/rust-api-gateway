@@ -1,0 +1,20 @@
+[workspace]
+resolver = "3"
+members = [
+    "crates/rust-gateway",
+    "crates/rust-gateway-server",
+    "conformance/harness",
+]
+exclude = ["spikes"]
+
+[workspace.package]
+version = "0.0.0"
+edition = "2024"
+license = "MIT"
+publish = false
+
+[workspace.lints.rust]
+unsafe_code = "forbid"
+
+[workspace.lints.clippy]
+all = { level = "warn", priority = -1 }
