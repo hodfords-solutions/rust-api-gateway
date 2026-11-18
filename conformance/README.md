@@ -56,7 +56,7 @@ The runner writes one JSON file per gateway start and passes its path in `GATEWA
 | `pool` | Passed to undici's `Pool` unchanged (CFG-10). The Rust target maps what it can. |
 | everything else | As in `ApiGatewayOption`. |
 
-The MCP callbacks (`filter`, `parameterFilter`, `toolName`) are functions and cannot be expressed in the file; a scenario that needs them must add a protocol for them first.
+The MCP callbacks (`filter`, `parameterFilter`, `toolName`) are functions, so the file describes them declaratively; see [MCP callbacks](#mcp-callbacks).
 
 Environment variables override the file the way the reference sample reads them (EX-01): `APP_PORT`, `REDIS_HOST`, `REDIS_PORT`, `REDIS_DB`.
 
@@ -76,6 +76,7 @@ The same rules apply to both. Steps run in this order.
 |---|---|
 | `x-test-auth-user: <id>` | Adds `authUserId: <id>` to the outgoing header set (forwarded as `auth-user-id: <id>` after kebab-casing, REQ-21) and sets the request field `authUserId = <id>`, which the Identity resolver reads (REQ-20). |
 | `x-test-add-headers: <JSON object>` | Adds every key/value to the outgoing header set with `addHeaders` (keys are kebab-cased on the way out, REQ-21; later values replace earlier ones, REQ-22). |
+| `x-test-echo-request: 1` | Proxy middleware only. Adds the header `x-test-request` with ASCII-only JSON `{body, headers}`: the request's `body` as the middleware sees it (`null` when absent; for an MCP tool call it is the tool arguments, MCP-16) and the sorted names of the request's headers. |
 | `x-test-echo-route: 1` | Proxy middleware only. Adds the header `x-test-route` with the matched Route as ASCII-only JSON: `{operationId, description, path, routerPath, isBearerAuth, isApiKeyAuth, rateLimits, extraKeys}`, where `operationId` is `null` when absent and `extraKeys` is the sorted key list of `extra`. Scenarios read it at the upstream to see which Route matched. |
 | `x-test-middleware: allow` (default) | Allows the request. |
 | `x-test-middleware: deny` | Returns false (REQ-18, WS-04). |
@@ -108,6 +109,16 @@ Always returns the object form `{ key, authenticated }` (RL-11).
 | `x-test-mcp-auth: allow` (default) | Authenticates. |
 | `x-test-mcp-auth: deny` | Returns false, so the gateway answers 401 `{"error":"Unauthorized"}` (MCP-04). |
 | `x-test-mcp-auth: respond` | Writes its own response, status `x-test-error-status` (default `418`) with body `x-test-error-body` (default `{"message":"test mcp authentication response"}`) as `application/json`, then returns false. |
+
+## MCP callbacks
+
+Optional fields of the `mcp` section. Each one, when present, installs the callback of the same name; when absent, the option is not set. Implemented in [`reference/src/mcp-callbacks.ts`](reference/src/mcp-callbacks.ts).
+
+| Field | Callback |
+|---|---|
+| `filter: { "rejectServices": [...], "rejectPathPrefixes": [...] }` | Rejects a Route when its service prefix is in `rejectServices` or its OpenAPI `path` starts with one of `rejectPathPrefixes` (MCP-06). Both lists are optional. |
+| `parameterFilter: { "rejectNames": [...], "rejectIn": [...] }` | Drops an operation parameter whose `name` is in `rejectNames` or whose `in` is in `rejectIn` (MCP-10). Both lists are optional. |
+| `toolName: "<template>"` | Returns the template with every `{serviceName}`, `{method}`, `{operationId}`, `{path}` and `{defaultName}` replaced by the context value (MCP-07). `method` is the lower-case path-item key; an absent operation id is the empty string. |
 
 ## Fixtures
 

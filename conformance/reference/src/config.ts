@@ -1,5 +1,6 @@
 import { readFileSync } from 'node:fs';
 import type { ConnectionOptions } from 'node:tls';
+import type { McpFilterSpec, McpParameterFilterSpec } from './mcp-callbacks.js';
 
 /**
  * The conformance configuration file. Its path comes from `GATEWAY_CONFIG`.
@@ -52,6 +53,10 @@ export type ConformanceConfig = {
         allowedServices?: string[];
         allowedOperations?: string[];
         serverInfo?: { name?: string; version?: string };
+        /** Declarative stand-ins for the MCP callbacks; see `mcp-callbacks.ts`. */
+        filter?: McpFilterSpec;
+        parameterFilter?: McpParameterFilterSpec;
+        toolName?: string;
     };
 };
 

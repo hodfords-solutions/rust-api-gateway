@@ -60,6 +60,12 @@ export function runMiddleware(request: IncomingMessage, proxyRequest: ProxyReque
     if (route && header(request, 'x-test-echo-route') === '1') {
         proxyRequest.addHeader('x-test-route', asciiJson(describeRoute(route)));
     }
+    if (route && header(request, 'x-test-echo-request') === '1') {
+        // What the middleware sees of the request: its body (the tool arguments for an MCP
+        // call, MCP-16) and the sorted names of its headers.
+        const seen = { body: (request as any).body ?? null, headers: Object.keys(request.headers).sort() };
+        proxyRequest.addHeader('x-test-request', asciiJson(seen));
+    }
 
     const mode = header(request, 'x-test-middleware') ?? 'allow';
     switch (mode) {
