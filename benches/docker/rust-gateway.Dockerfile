@@ -14,10 +14,8 @@ RUN --mount=type=cache,target=/usr/local/cargo/registry \
     && rustc --version > /out/share/rustc-version
 
 FROM debian:bookworm-slim
-# The document fetcher's HTTP client (reqwest with rustls) will not build without CA
-# certificates, even for plain-HTTP upstreams.
-RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates \
-    && rm -rf /var/lib/apt/lists/*
+# No ca-certificates: the gateway trusts the root certificates built into it, never the
+# host's trust store, and the benchmark's upstream is plain HTTP.
 COPY --from=build /out/bin/ /usr/local/bin/
 COPY --from=build /out/share/ /usr/local/share/rust-gateway/
 ENV GATEWAY_MIDDLEWARE=bench RUST_LOG=warn NO_COLOR=1
