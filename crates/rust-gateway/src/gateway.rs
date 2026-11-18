@@ -599,6 +599,32 @@ mod tests {
     use super::*;
     use serde_json::json;
 
+    // CFG-05, CFG-08, CFG-11, CFG-12: the options hold the reference's fields; the Identity
+    // resolver is optional.
+    #[test]
+    fn cfg_05_cfg_08_cfg_11_cfg_12_options_hold_the_reference_fields() {
+        use crate::rate_limit::BucketLimit;
+        let rate_limit =
+            RateLimitOptions::new(true, BucketLimit::new(60, 60.0), BucketLimit::new(30, 1.5));
+        let mut options = GatewayOptions::new(
+            vec![UpstreamService::new("svc", "http://a/doc", "http://a")],
+            rate_limit.clone(),
+            RedisOptions::new("localhost", 6379),
+        );
+        assert_eq!(options.rate_limit, rate_limit);
+        assert_eq!(options.documents, DocumentOptions::default());
+        assert!(!options.documents.enabled);
+        options.documents = DocumentOptions {
+            enabled: true,
+            hide_document_ids: vec!["AppController_getHello".into()],
+        };
+        options.scalar_options = Some(json!({ "showExtensions": true }));
+        options.bypass_route_prefixes = vec!["svc/public".into()];
+        assert_eq!(options.documents.hide_document_ids, ["AppController_getHello"]);
+        assert_eq!(options.scalar_options, Some(json!({ "showExtensions": true })));
+        assert!(GatewayBuilder::new(options).handlers.identity_resolver().is_none());
+    }
+
     // CFG-10: the undici options the port maps, with undici's defaults.
     #[test]
     fn cfg_10_pool_options_map_undici_fields() {
