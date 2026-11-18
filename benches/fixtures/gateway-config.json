@@ -1,0 +1,22 @@
+{
+  "port": 3000,
+  "trustProxy": ["loopback", "linklocal", "uniquelocal"],
+  "apiServices": [
+    { "prefix": "svc", "docUrl": "http://upstream:5000/openapi.json", "host": "http://upstream:5000" }
+  ],
+  "excludeHeaders": ["auth-user-id", "permission-in-any-guard"],
+  "openApiSecurityKeys": ["auth-user-id"],
+  "openApiSecurityApiKeys": ["x-api-key"],
+  "throttler": {
+    "globalIpRateLimit": 1000000000,
+    "globalIpRateLimitTTL": 60,
+    "globalCustomRateLimit": 1000000000,
+    "globalCustomRateLimitTTL": 60,
+    "isEnable": true,
+    "anonymousIpRateLimit": 1000000000,
+    "anonymousIpRateLimitTTL": 60
+  },
+  "restful": { "isEnableDocument": true, "hideDocumentIds": [] },
+  "redis": { "host": "redis", "port": 6379, "db": 0 },
+  "pool": { "connections": 100, "pipelining": 1 }
+}
