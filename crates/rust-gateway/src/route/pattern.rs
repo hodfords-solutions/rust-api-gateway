@@ -153,7 +153,14 @@ impl PathPattern {
         let units = Units::new(input);
         self.alternatives.iter().any(|alternative| {
             let mut caps = vec![None; self.keys.len()];
-            match_elems(alternative, 0, 0, &units, &mut caps)
+            match_elems(
+                alternative,
+                0,
+                0,
+                &units,
+                &mut caps,
+                &mut Failures::default(),
+            )
         })
     }
 
@@ -163,7 +170,14 @@ impl PathPattern {
         let units = Units::new(input);
         for alternative in &self.alternatives {
             let mut caps = vec![None; self.keys.len()];
-            if !match_elems(alternative, 0, 0, &units, &mut caps) {
+            if !match_elems(
+                alternative,
+                0,
+                0,
+                &units,
+                &mut caps,
+                &mut Failures::default(),
+            ) {
                 continue;
             }
             let mut params: Vec<(String, ParamValue)> = Vec::new();
@@ -705,6 +719,29 @@ fn canonicalize(unit: u16) -> u16 {
     }
 }
 
+/// The capture elements already known not to match at a position.
+///
+/// Whether `elems[index..]` matches at `pos` does not depend on how the matcher got there
+/// (the expressions have no backreferences), so a failure found once is final. Remembering
+/// failures keeps the backtracking order, and so the captures, of a JavaScript engine while
+/// bounding the work by the number of (element, position) pairs instead of the number of
+/// paths through them, which grows exponentially with repeated wildcards (FUZZ-03). The set
+/// is only allocated once a capture fails.
+#[derive(Default)]
+struct Failures(Option<std::collections::HashSet<(usize, usize)>>);
+
+impl Failures {
+    fn contains(&self, index: usize, pos: usize) -> bool {
+        self.0
+            .as_ref()
+            .is_some_and(|set| set.contains(&(index, pos)))
+    }
+
+    fn insert(&mut self, index: usize, pos: usize) {
+        self.0.get_or_insert_default().insert((index, pos));
+    }
+}
+
 /// Matches `elems[index..]` and then the anchored trailing `(?:\/$)?$` at `pos`, trying
 /// alternatives in order and repetitions longest first, as a backtracking JavaScript
 /// regular expression engine does.
@@ -714,6 +751,7 @@ fn match_elems(
     pos: usize,
     units: &Units,
     caps: &mut [Option<(usize, usize)>],
+    failures: &mut Failures,
 ) -> bool {
     let input = &units.canonical;
     let Some(elem) = elems.get(index) else {
@@ -723,12 +761,15 @@ fn match_elems(
     match elem {
         Elem::Text(text) => {
             input[pos..].starts_with(text)
-                && match_elems(elems, index + 1, pos + text.len(), units, caps)
+                && match_elems(elems, index + 1, pos + text.len(), units, caps, failures)
         }
         Elem::Capture {
             group,
             alternatives,
         } => {
+            if failures.contains(index, pos) {
+                return false;
+            }
             for alternative in alternatives {
                 match alternative {
                     CaptureAlt::Repeat(class) => {
@@ -738,7 +779,7 @@ fn match_elems(
                         }
                         for len in (1..=run).rev() {
                             caps[*group] = Some((pos, pos + len));
-                            if match_elems(elems, index + 1, pos + len, units, caps) {
+                            if match_elems(elems, index + 1, pos + len, units, caps, failures) {
                                 return true;
                             }
                         }
@@ -746,7 +787,14 @@ fn match_elems(
                     CaptureAlt::Text(text) => {
                         if input[pos..].starts_with(text) {
                             caps[*group] = Some((pos, pos + text.len()));
-                            if match_elems(elems, index + 1, pos + text.len(), units, caps) {
+                            if match_elems(
+                                elems,
+                                index + 1,
+                                pos + text.len(),
+                                units,
+                                caps,
+                                failures,
+                            ) {
                                 return true;
                             }
                         }
@@ -754,6 +802,7 @@ fn match_elems(
                 }
             }
             caps[*group] = None;
+            failures.insert(index, pos);
             false
         }
     }

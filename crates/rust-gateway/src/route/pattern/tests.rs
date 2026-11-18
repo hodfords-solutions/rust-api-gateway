@@ -195,21 +195,31 @@ fn oas_20_router_path_syntax() {
     assert_eq!(quoted.keys()[0].name, "quoted name");
 }
 
-// Open fuzz finding FUZZ-03 (docs/security/fuzzing.md): each `*wildcard` after the first
-// compiles to two identical alternatives (`([^\/]+|[^\/]+)`) and the matcher retries every
-// repetition length, so a failing match takes time exponential in the number of wildcards.
-// `path-to-regexp` under V8 answers this in under a millisecond.
+// FUZZ-03 (docs/security/fuzzing.md): each `*wildcard` after the first compiles to two
+// identical alternatives (`([^\/]+|[^\/]+)`); retrying every repetition length made a failing
+// match exponential in the number of wildcards. `path-to-regexp` under V8 answers in under a
+// millisecond; so must the port, for failing and succeeding matches alike.
 #[test]
-#[ignore = "fuzz finding FUZZ-03: exponential backtracking with many wildcards"]
-fn fuzz_03_many_wildcards_fail_fast() {
-    let n = 24;
+fn fuzz_03_many_wildcards_match_fast() {
+    let n = 64;
     let pattern: String = (0..n).map(|i| format!("/*w{i}")).collect();
-    let path = "/x".repeat(n - 1);
     let compiled = PathPattern::compile(&pattern).unwrap();
     let started = std::time::Instant::now();
-    assert!(!compiled.is_match(&path));
+    assert!(!compiled.is_match(&"/x".repeat(n - 1)));
+    assert!(!compiled.is_match(&format!("{}/", "/x".repeat(n - 1))));
+    let found = compiled
+        .matches(&format!("/a/b{}", "/x".repeat(n - 1)))
+        .unwrap()
+        .expect("matches");
+    assert_eq!(
+        found.params[0],
+        (
+            "w0".into(),
+            ParamValue::Segments(vec!["a".into(), "b".into()])
+        )
+    );
     assert!(
-        started.elapsed() < std::time::Duration::from_millis(100),
+        started.elapsed() < std::time::Duration::from_secs(1),
         "took {:?}",
         started.elapsed()
     );
