@@ -143,7 +143,10 @@ async fn d6_documents_page_escapes_and_selects_by_slug() {
     assert_eq!(response.status(), 200);
     let headers = response.headers().clone();
     assert_eq!(headers["content-type"], "text/html; charset=utf-8");
-    assert!(!headers.contains_key("x-powered-by"), "off by default (D11)");
+    assert!(
+        !headers.contains_key("x-powered-by"),
+        "off by default (D11)"
+    );
     assert!(headers["etag"].to_str().unwrap().starts_with("W/\""));
     let length: usize = headers["content-length"].to_str().unwrap().parse().unwrap();
     let html = response.text().await.unwrap();
@@ -259,6 +262,248 @@ mod mcp {
             tokio::time::sleep(std::time::Duration::from_millis(20)).await;
         }
         served
+    }
+
+    /// One `POST /mcp` exchange as `<status> [<content-type>] <body>`, plus `cache-control`
+    /// for an event stream.
+    async fn mcp_exchange(
+        served: &gateway_common::Served,
+        headers: &[(&str, &str)],
+        body: impl Into<reqwest::Body>,
+    ) -> String {
+        let mut request = client().post(served.url("/mcp"));
+        for (name, value) in headers {
+            request = request.header(*name, *value);
+        }
+        let response = request.body(body).send().await.unwrap();
+        let status = response.status().as_u16();
+        let header = |name: &str| {
+            response
+                .headers()
+                .get(name)
+                .map(|v| v.to_str().unwrap().to_string())
+                .unwrap_or_else(|| "-".into())
+        };
+        let content_type = header("content-type");
+        let cache = if content_type == "text/event-stream" {
+            format!(" (cache-control {})", header("cache-control"))
+        } else {
+            String::new()
+        };
+        let text = response.text().await.unwrap();
+        format!("{status} [{content_type}]{cache} {text}")
+    }
+
+    /// A labelled `POST /mcp`: its headers and body.
+    type Case = (&'static str, Vec<(&'static str, &'static str)>, String);
+
+    // MCP-02 (D13): where the MCP transport follows `rmcp` instead of the reference's
+    // TypeScript SDK, every difference listed at the end of docs/parity/08-mcp.md, pinned as
+    // the served gateway answers it, so that an `rmcp` upgrade that changes one fails here.
+    // The reference's answers are checked by `mcp::mcp_02_transport_reference_only`.
+    #[tokio::test]
+    async fn d13_mcp_transport_follows_rmcp() {
+        const ACCEPT: (&str, &str) = ("accept", "application/json, text/event-stream");
+        const JSON: (&str, &str) = ("content-type", "application/json");
+        let upstream = Upstream::start().await;
+        let served = mcp_gateway(&upstream).await;
+        let ping = r#"{"jsonrpc":"2.0","id":1,"method":"ping"}"#;
+        let version = |v: &'static str| ("mcp-protocol-version", v);
+        let call = |params: Value| {
+            json!({ "jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": params })
+                .to_string()
+        };
+        let cases: Vec<Case> = vec![
+            ("SSE framing", vec![ACCEPT, JSON], ping.into()),
+            (
+                "batch of requests",
+                vec![ACCEPT, JSON],
+                format!("[{ping},{}]", ping.replace("\"id\":1", "\"id\":2")),
+            ),
+            (
+                "batch of a notification",
+                vec![ACCEPT, JSON],
+                r#"[{"jsonrpc":"2.0","method":"notifications/initialized"}]"#.into(),
+            ),
+            ("empty batch", vec![ACCEPT, JSON], "[]".into()),
+            (
+                "JSON-RPC response from the client",
+                vec![ACCEPT, JSON],
+                r#"{"jsonrpc":"2.0","id":5,"result":{}}"#.into(),
+            ),
+            (
+                "malformed JSON",
+                vec![ACCEPT, JSON],
+                r#"{"jsonrpc":"#.into(),
+            ),
+            ("empty body", vec![ACCEPT, JSON], String::new()),
+            ("not JSON-RPC", vec![ACCEPT, JSON], r#"{"foo":1}"#.into()),
+            (
+                "jsonrpc 1.0",
+                vec![ACCEPT, JSON],
+                r#"{"jsonrpc":"1.0","id":1,"method":"ping"}"#.into(),
+            ),
+            (
+                "null id",
+                vec![ACCEPT, JSON],
+                r#"{"jsonrpc":"2.0","id":null,"method":"ping"}"#.into(),
+            ),
+            ("no Accept", vec![JSON], ping.into()),
+            (
+                "Accept without event-stream",
+                vec![("accept", "application/json"), JSON],
+                ping.into(),
+            ),
+            ("Accept */*", vec![("accept", "*/*"), JSON], ping.into()),
+            (
+                "content type not JSON",
+                vec![ACCEPT, ("content-type", "text/plain")],
+                ping.into(),
+            ),
+            (
+                "unsupported mcp-protocol-version",
+                vec![ACCEPT, JSON, version("1999-01-01")],
+                ping.into(),
+            ),
+            (
+                "mcp-protocol-version 2024-10-07",
+                vec![ACCEPT, JSON, version("2024-10-07")],
+                ping.into(),
+            ),
+            (
+                "mcp-protocol-version 2026-07-28",
+                vec![ACCEPT, JSON, version("2026-07-28")],
+                ping.into(),
+            ),
+            (
+                "resources/list",
+                vec![ACCEPT, JSON],
+                r#"{"jsonrpc":"2.0","id":1,"method":"resources/list","params":{}}"#.into(),
+            ),
+            (
+                "tools/call without name",
+                vec![ACCEPT, JSON],
+                call(json!({})),
+            ),
+            (
+                "tools/call with array arguments",
+                vec![ACCEPT, JSON],
+                call(json!({ "name": "svc_getUser", "arguments": [1] })),
+            ),
+        ];
+        let mut observed = Vec::new();
+        for (label, headers, body) in cases {
+            observed.push((
+                label.to_string(),
+                mcp_exchange(&served, &headers, body).await,
+            ));
+        }
+        // Larger than the 4 MiB both SDKs accept.
+        let large = format!(
+            r#"{{"jsonrpc":"2.0","id":1,"method":"ping","params":{{"pad":"{}"}}}}"#,
+            "x".repeat(4 * 1024 * 1024)
+        );
+        observed.push((
+            "body larger than 4 MiB".to_string(),
+            mcp_exchange(&served, &[ACCEPT, JSON], large).await,
+        ));
+
+        let expected: Vec<(&str, &str)> = vec![
+            (
+                "SSE framing",
+                "200 [text/event-stream] (cache-control no-cache) data: {\"jsonrpc\":\"2.0\",\"id\":1,\"result\":{}}\n\n",
+            ),
+            (
+                "batch of requests",
+                "415 [-] fail to deserialize request body unrecognized JSON-RPC message",
+            ),
+            (
+                "batch of a notification",
+                "415 [-] fail to deserialize request body unrecognized JSON-RPC message",
+            ),
+            (
+                "empty batch",
+                "415 [-] fail to deserialize request body unrecognized JSON-RPC message",
+            ),
+            (
+                "JSON-RPC response from the client",
+                "400 [application/json] {\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32600,\"message\":\"stateless server does not accept JSON-RPC responses\"}}",
+            ),
+            (
+                "malformed JSON",
+                "415 [-] fail to deserialize request body EOF while parsing a value at line 1 column 11",
+            ),
+            (
+                "empty body",
+                "415 [-] fail to deserialize request body EOF while parsing a value at line 1 column 0",
+            ),
+            (
+                "not JSON-RPC",
+                "415 [-] fail to deserialize request body unrecognized JSON-RPC message",
+            ),
+            (
+                "jsonrpc 1.0",
+                "415 [-] fail to deserialize request body unrecognized JSON-RPC message",
+            ),
+            (
+                "null id",
+                "415 [-] fail to deserialize request body unrecognized JSON-RPC message",
+            ),
+            (
+                "no Accept",
+                "406 [-] Not Acceptable: Client must accept both application/json and text/event-stream",
+            ),
+            (
+                "Accept without event-stream",
+                "406 [-] Not Acceptable: Client must accept both application/json and text/event-stream",
+            ),
+            (
+                "Accept */*",
+                "406 [-] Not Acceptable: Client must accept both application/json and text/event-stream",
+            ),
+            (
+                "content type not JSON",
+                "415 [-] Unsupported Media Type: Content-Type must be application/json",
+            ),
+            (
+                "unsupported mcp-protocol-version",
+                "400 [-] Bad Request: Unsupported MCP-Protocol-Version: 1999-01-01",
+            ),
+            (
+                "mcp-protocol-version 2024-10-07",
+                "400 [-] Bad Request: Unsupported MCP-Protocol-Version: 2024-10-07",
+            ),
+            (
+                "mcp-protocol-version 2026-07-28",
+                "400 [application/json] {\"jsonrpc\":\"2.0\",\"id\":1,\"error\":{\"code\":-32020,\"message\":\"missing required Mcp-Method header\"}}",
+            ),
+            (
+                "resources/list",
+                "200 [text/event-stream] (cache-control no-cache) data: {\"jsonrpc\":\"2.0\",\"id\":1,\"error\":{\"code\":-32601,\"message\":\"resources/list\"}}\n\n",
+            ),
+            (
+                "tools/call without name",
+                "200 [text/event-stream] (cache-control no-cache) data: {\"jsonrpc\":\"2.0\",\"id\":1,\"error\":{\"code\":-32601,\"message\":\"Method not found\"}}\n\n",
+            ),
+            (
+                "tools/call with array arguments",
+                "200 [text/event-stream] (cache-control no-cache) data: {\"jsonrpc\":\"2.0\",\"id\":1,\"error\":{\"code\":-32601,\"message\":\"Method not found\"}}\n\n",
+            ),
+            (
+                "body larger than 4 MiB",
+                "413 [-] Payload Too Large: request body exceeds 4194304 bytes",
+            ),
+        ];
+        let expected: Vec<(String, String)> = expected
+            .into_iter()
+            .map(|(a, b)| (a.to_string(), b.to_string()))
+            .collect();
+        if observed != expected {
+            for (label, line) in &observed {
+                println!("            ({label:?}, {line:?}),");
+            }
+        }
+        assert_eq!(observed, expected);
     }
 
     // MCP-12 (D8): a schema referenced twice resolves both times.

@@ -1374,8 +1374,9 @@ async fn endpoint_authentication() {
 
 /// MCP-02, the rmcp side: what `rmcp` 3.11 answers for each exchange of
 /// `conformance::mcp::mcp_02_transport`. Exchanges where it differs from the reference's
-/// TypeScript SDK are listed in `docs/parity/08-mcp.md` (MCP-02); this test pins rmcp's
-/// behaviour so an upgrade that changes it is noticed.
+/// TypeScript SDK are listed in `docs/parity/08-mcp.md` (MCP-02) and accepted as Deviation
+/// D13; this test pins rmcp's behaviour so an upgrade that changes it is noticed (as does
+/// `gateway_endpoints::mcp::d13_mcp_transport_follows_rmcp`, through the served gateway).
 #[tokio::test]
 async fn endpoint_transport_behaviour_of_rmcp() {
     let endpoint = endpoint(RecordingBackend::new(), McpOptions::enabled());
