@@ -9,9 +9,16 @@
 //!   [`ToolCallBackend`], then the upstream request built by [`build_upstream_call`]
 //!   (MCP-14 to MCP-20).
 //! - [`McpEndpoint`] serves `POST /mcp` with `rmcp`'s Streamable HTTP transport in stateless
-//!   mode, after the [`McpAuthentication`] handlers (MCP-01 to MCP-04).
+//!   mode, after the [`McpAuthentication`](crate::handler::McpAuthentication) handlers
+//!   (MCP-01 to MCP-04).
 //!
 //! # Wiring
+//!
+//! The gateway does all of it when [`GatewayOptions::mcp`](crate::GatewayOptions) holds
+//! enabled [`McpOptions`]: it starts the registry with the gateway, implements
+//! [`ToolCallBackend`] with its rate limiter, proxy middleware and a connection pool per
+//! Upstream Service, and mounts the endpoint. [`Gateway::mcp_tools`](crate::Gateway::mcp_tools)
+//! reads the current tool list. The pieces are public for tests and other servers:
 //!
 //! ```ignore
 //! let options = Arc::new(McpOptions::enabled());
@@ -19,7 +26,6 @@
 //! let _refresh = registry.start(); // keep alive
 //! let executor = Arc::new(ToolExecutor::new(registry, backend, exclude_headers));
 //! let endpoint = McpEndpoint::new(executor, authenticators);
-//! // axum: .route("/mcp", post_service(endpoint)) for each path form of MCP-01
 //! ```
 //!
 //! # Deviations
@@ -28,6 +34,7 @@
 //! - D8 (MCP-12): a schema referenced from several places is resolved every time; only a
 //!   reference to one of its own ancestors resolves to `{}`.
 
+pub(crate) mod backend;
 mod call;
 mod executor;
 mod js;
@@ -56,6 +63,4 @@ pub use registry::{
     ToolRegistry, build_tools,
 };
 pub use schema::{default_tool_name, normalize_schema_type};
-pub use server::{
-    INTERNAL_ERROR_BODY, McpAuthOutcome, McpAuthentication, McpBody, McpEndpoint, UNAUTHORIZED_BODY,
-};
+pub use server::{INTERNAL_ERROR_BODY, McpBody, McpEndpoint, UNAUTHORIZED_BODY};

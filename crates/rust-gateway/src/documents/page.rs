@@ -11,8 +11,11 @@
 //!   `</script>` in any value breaks the page, and the default source inside a quoted
 //!   string with HTML escaping.
 //! - `?type=<prefix>` is checked against the sources' `slug` (the reference compares
-//!   `doc.name`, which the sources do not have) and the chosen source is passed to Scalar
-//!   with `default: true`; without a match the last loaded service is chosen.
+//!   `doc.name`, which the sources do not have) and the matching source is passed to Scalar
+//!   with `default: true`. Without `?type=`, or when it names no source, no source is
+//!   marked, as in the reference: its `type` variable (falling back to the last service)
+//!   is computed but never given to Scalar, which then opens its own default source. The
+//!   `type` lines are kept as the reference has them, comparing `slug`.
 
 use super::json::{JsValue, stringify};
 
@@ -151,7 +154,7 @@ pub fn render_page(services: &[String], scalar_options: Option<&serde_json::Valu
     page.push_str("    }\n");
     page.push_str("    Scalar.createApiReference('#app', {\n");
     page.push_str(
-        "        sources: apiDocs.map((doc) => (doc.slug === type ? { ...doc, default: true } : doc)),\n",
+        "        sources: apiDocs.map((doc) => (doc.slug === urlParams.get('type') ? { ...doc, default: true } : doc)),\n",
     );
     page.push_str(OPTIONS);
     page

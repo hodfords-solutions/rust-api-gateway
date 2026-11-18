@@ -2,7 +2,8 @@
 //! `conformance/reference/src/config.ts` reads it, and the reference sample's environment
 //! configuration (EX-01, EX-02, EX-04).
 
-use rust_gateway::gateway::{DocumentOptions, GatewayOptions, McpOptions, PoolOptions};
+use rust_gateway::gateway::{DocumentOptions, GatewayOptions, PoolOptions};
+use rust_gateway::mcp::{McpOptions, ServerInfo, ToolNameContext};
 use rust_gateway::rate_limit::{
     BucketLimit, RateLimitOptions, RedisOptions, RedisTls, RedisTlsOptions, TrustProxy,
 };
@@ -93,6 +94,109 @@ pub struct Mcp {
     pub allowed_operations: Option<Vec<String>>,
     #[serde(default)]
     pub server_info: Option<Value>,
+    /// The `filter` callback's description (`conformance/README.md`, MCP callbacks).
+    #[serde(default)]
+    pub filter: Option<McpFilterSpec>,
+    /// The `parameterFilter` callback's description.
+    #[serde(default)]
+    pub parameter_filter: Option<McpParameterFilterSpec>,
+    /// The `toolName` callback's template.
+    #[serde(default)]
+    pub tool_name: Option<String>,
+}
+
+/// `mcp.filter`: a Route is rejected when its service or its OpenAPI path matches.
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct McpFilterSpec {
+    #[serde(default)]
+    pub reject_services: Option<Vec<String>>,
+    #[serde(default)]
+    pub reject_path_prefixes: Option<Vec<String>>,
+}
+
+/// `mcp.parameterFilter`: a parameter is dropped when its `name` or its `in` is listed.
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct McpParameterFilterSpec {
+    #[serde(default)]
+    pub reject_names: Option<Vec<String>>,
+    #[serde(default)]
+    pub reject_in: Option<Vec<String>>,
+}
+
+/// `applyToolNameTemplate` of `conformance/reference/src/mcp-callbacks.ts`: every
+/// `{serviceName}`, `{method}`, `{operationId}`, `{path}` and `{defaultName}` replaced by the
+/// context value, in one pass (an absent operation id is the empty string).
+pub fn apply_tool_name_template(template: &str, context: &ToolNameContext<'_>) -> String {
+    let values = [
+        ("{serviceName}", context.service_name),
+        ("{method}", context.method),
+        ("{operationId}", context.operation_id.unwrap_or("")),
+        ("{path}", context.path),
+        ("{defaultName}", context.default_name),
+    ];
+    let mut out = String::with_capacity(template.len());
+    let mut rest = template;
+    'outer: while let Some(c) = rest.chars().next() {
+        if c == '{' {
+            for (placeholder, value) in values {
+                if let Some(after) = rest.strip_prefix(placeholder) {
+                    out.push_str(value);
+                    rest = after;
+                    continue 'outer;
+                }
+            }
+        }
+        out.push(c);
+        rest = &rest[c.len_utf8()..];
+    }
+    out
+}
+
+impl Mcp {
+    /// The MCP options this section describes, with its callbacks (`mcpOption` of
+    /// `conformance/reference/src/mcp-callbacks.ts`).
+    pub fn into_options(self) -> McpOptions {
+        let text = |value: Option<&Value>| value.and_then(Value::as_str).map(str::to_string);
+        let server_info = self.server_info.as_ref();
+        let mut options = McpOptions {
+            enabled: self.enabled,
+            allowed_services: self.allowed_services,
+            allowed_operations: self.allowed_operations,
+            server_info: ServerInfo {
+                name: text(server_info.and_then(|i| i.get("name"))),
+                version: text(server_info.and_then(|i| i.get("version"))),
+            },
+            ..McpOptions::default()
+        };
+        if let Some(filter) = self.filter {
+            let services = filter.reject_services.unwrap_or_default();
+            let prefixes = filter.reject_path_prefixes.unwrap_or_default();
+            options = options.with_filter(move |service, route| {
+                !services.iter().any(|s| s == service)
+                    && !prefixes.iter().any(|p| route.path.starts_with(p.as_str()))
+            });
+        }
+        if let Some(filter) = self.parameter_filter {
+            let names = filter.reject_names.unwrap_or_default();
+            let places = filter.reject_in.unwrap_or_default();
+            options = options.with_parameter_filter(move |parameter, _| {
+                let listed = |list: &[String], key: &str| {
+                    parameter
+                        .get(key)
+                        .and_then(Value::as_str)
+                        .is_some_and(|value| list.iter().any(|l| l == value))
+                };
+                !listed(&names, "name") && !listed(&places, "in")
+            });
+        }
+        if let Some(template) = self.tool_name {
+            options =
+                options.with_tool_name(move |context| apply_tool_name_template(&template, context));
+        }
+        options
+    }
 }
 
 /// What the binary runs.
@@ -264,12 +368,7 @@ impl ConformanceConfig {
             hide_document_ids: self.restful.hide_document_ids.unwrap_or_default(),
         };
         options.scalar_options = self.scalar_options;
-        options.mcp = self.mcp.map(|mcp| McpOptions {
-            enabled: mcp.enabled,
-            allowed_services: mcp.allowed_services,
-            allowed_operations: mcp.allowed_operations,
-            server_info: mcp.server_info,
-        });
+        options.mcp = self.mcp.map(Mcp::into_options);
         Ok(Settings {
             port: port("port", self.port)?,
             options,
@@ -355,10 +454,7 @@ pub fn sample_settings_from(
         connections: Some(100),
         ..PoolOptions::default()
     };
-    options.mcp = Some(McpOptions {
-        enabled: true,
-        ..McpOptions::default()
-    });
+    options.mcp = Some(McpOptions::enabled());
     Ok(Settings {
         port: port("APP_PORT", app_port)?,
         options,

@@ -114,7 +114,11 @@ impl DocumentStore {
     }
 
     /// Prefixes of the services that have a document, in the order of their first
-    /// successful load (the key order of the reference's `apiDocs`).
+    /// successful load. The reference's `apiDocs` is a plain object, so its key order puts
+    /// prefixes that are array indices (`0`, `7`) first; [`page_service_order`] turns this
+    /// list into that order.
+    ///
+    /// [`page_service_order`]: crate::documents::page_service_order
     pub fn loaded_services(&self) -> Vec<String> {
         lock(&self.loaded_order).clone()
     }

@@ -128,6 +128,17 @@ fn run_middleware(
     {
         proxy_request.add_header("x-test-route", ascii_json(&describe_route(route)));
     }
+    if route.is_some() && header(request, "x-test-echo-request").as_deref() == Some("1") {
+        // What the middleware sees of the request: its body (the tool arguments for an MCP
+        // call, MCP-16) and the sorted names of its headers.
+        let mut names: Vec<&str> = request.headers().keys().map(|n| n.as_str()).collect();
+        names.sort_by(|a, b| js_order(a, b));
+        let seen = json!({
+            "body": request.body().cloned().unwrap_or(Value::Null),
+            "headers": names,
+        });
+        proxy_request.add_header("x-test-request", ascii_json(&seen));
+    }
     match header(request, "x-test-middleware")
         .as_deref()
         .unwrap_or("allow")
