@@ -5,7 +5,7 @@ use conformance::client::Response;
 use conformance::config::GatewayConfig;
 use conformance::fixtures;
 use conformance::mock::MockUpstream;
-use conformance::runner::{Gateway, Target};
+use conformance::runner::{Gateway, Target, TargetKind};
 use serde_json::{Value, json};
 
 /// A mock serving `users-service.json`, and a gateway with it as service `svc`.
@@ -19,6 +19,32 @@ pub async fn users_gateway(
         .start(configure(GatewayConfig::new().service("svc", &mock)))
         .await?;
     Ok((mock, gateway))
+}
+
+/// Deviation D11 (FWD-15, REQ-23): the reference puts `x-powered-by: Express` first in every
+/// response the upstream did not give its own `x-powered-by`; the Rust target sends none (it
+/// is off by default, `GatewayBuilder::x_powered_by`, tested Rust-only). Checks that for the
+/// target and returns the other header lines, which both targets must still send alike.
+/// `lines` are `name: value` with names lower-cased.
+pub fn without_x_powered_by(kind: TargetKind, label: &str, mut lines: Vec<String>) -> Vec<String> {
+    const EXPRESS: &str = "x-powered-by: Express";
+    match kind {
+        TargetKind::Reference => {
+            assert_eq!(
+                lines.first().map(String::as_str),
+                Some(EXPRESS),
+                "{label}: the reference sends {EXPRESS} first"
+            );
+            lines.remove(0);
+        }
+        TargetKind::Rust => {
+            assert!(
+                !lines.iter().any(|l| l.starts_with("x-powered-by:")),
+                "{label}: no x-powered-by under Deviation D11: {lines:?}"
+            );
+        }
+    }
+    lines
 }
 
 /// The parts of an error response both targets must reproduce.

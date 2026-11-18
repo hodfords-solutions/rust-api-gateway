@@ -191,7 +191,8 @@ pub enum BuildError {
     /// An Upstream Service's `host` is not an `http` or `https` origin.
     #[error("{0}")]
     UpstreamOrigin(String),
-    /// The default document fetcher could not be created.
+    /// The default document fetcher could not be created (it never depends on the host's
+    /// trust store).
     #[error(transparent)]
     Fetcher(#[from] FetchError),
     /// [`GatewayBuilder::build`] was called outside a Tokio runtime.
@@ -273,7 +274,7 @@ impl GatewayBuilder {
             renderer: Arc::new(DefaultErrorRenderer),
             routes: Router::new(),
             fetcher: None,
-            x_powered_by: true,
+            x_powered_by: false,
             upstream_tls: None,
         }
     }
@@ -370,15 +371,21 @@ impl GatewayBuilder {
         self
     }
 
-    /// Whether responses carry `X-Powered-By: Express` as the reference's do (default
-    /// true). The only switch for that header.
+    /// Whether responses carry `X-Powered-By: Express` (default false, Deviation D11). The
+    /// reference sends it on every response, an Express default; `true` restores it exactly
+    /// where Express puts it: first among the headers, unless a forwarded response has its
+    /// own `x-powered-by`, which is kept instead (FWD-15, REQ-23). The only switch for that
+    /// header.
     pub fn x_powered_by(mut self, enabled: bool) -> Self {
         self.x_powered_by = enabled;
         self
     }
 
-    /// The TLS settings for `https` upstreams (FWD-19). The default trusts Mozilla's root
-    /// certificates.
+    /// The TLS settings for `https` Upstream Services (FWD-19) and `https` document URLs
+    /// (OAS-01). The default trusts Mozilla's root certificates, built in, as Node trusts its
+    /// bundled store: the host's trust store is never read, so a host without CA
+    /// certificates still starts the gateway, and an `https` peer those roots do not cover
+    /// fails per request (503, FWD-22) or per document fetch, with the TLS error logged.
     pub fn upstream_tls(mut self, config: rustls::ClientConfig) -> Self {
         self.upstream_tls = Some(Arc::new(config));
         self
@@ -393,7 +400,9 @@ impl GatewayBuilder {
         }
         let options = self.options;
         let limiter = RateLimiter::new(&options.rate_limit, &options.redis)?;
-        let tls = self.upstream_tls.unwrap_or_else(default_upstream_tls);
+        let tls = self
+            .upstream_tls
+            .unwrap_or_else(|| Arc::new(crate::tls::default_client_config()));
         let mut pools = HashMap::new();
         for service in &options.api_services {
             let origin = Origin::parse(&service.host).map_err(BuildError::UpstreamOrigin)?;
@@ -421,7 +430,7 @@ impl GatewayBuilder {
         ));
         let fetcher: Arc<dyn DocumentFetcher> = match self.fetcher {
             Some(fetcher) => fetcher,
-            None => Arc::new(HttpDocumentFetcher::new()?),
+            None => Arc::new(HttpDocumentFetcher::with_tls((*tls).clone(), None)?),
         };
         let loader = DocumentLoader::new(Arc::clone(&store), Arc::clone(&fetcher)).start();
         let endpoints = Endpoints {
@@ -480,24 +489,6 @@ impl GatewayBuilder {
             routes: self.routes,
         })
     }
-}
-
-fn default_upstream_tls() -> Arc<rustls::ClientConfig> {
-    let roots = rustls::RootCertStore::from_iter(webpki_roots::TLS_SERVER_ROOTS.iter().cloned());
-    let config = rustls::ClientConfig::builder_with_provider(Arc::new(
-        rustls::crypto::ring::default_provider(),
-    ))
-    .with_safe_default_protocol_versions()
-    .map(|builder| {
-        builder
-            .with_root_certificates(roots.clone())
-            .with_no_client_auth()
-    });
-    Arc::new(config.unwrap_or_else(|_| {
-        rustls::ClientConfig::builder()
-            .with_root_certificates(roots)
-            .with_no_client_auth()
-    }))
 }
 
 /// State shared by every request.
@@ -586,7 +577,8 @@ impl Gateway {
     /// ASCII case and one trailing slash), then the proxy for everything else (REQ-01),
     /// wrapped in the HTTP
     /// behaviours the reference gets from Express and Node (REQ-26, the asterisk-form
-    /// target, `X-Powered-By`, `Date`, `Connection` and `Keep-Alive` on every response).
+    /// target, `Date`, `Connection` and `Keep-Alive` on every response, and `X-Powered-By`
+    /// when [`GatewayBuilder::x_powered_by`] turns it on).
     ///
     /// [`serve`](Self::serve) serves it with the client address and `Expect: 100-continue`
     /// handled as Node does; an application serving it another way must provide

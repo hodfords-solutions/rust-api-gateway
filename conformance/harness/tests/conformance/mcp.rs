@@ -293,9 +293,9 @@ async fn mcp_02_transport() {
 
 /// MCP-02, the reference's answers where `rmcp` differs (the table at the end of
 /// `docs/parity/08-mcp.md`): SSE framing, client responses, batches, transport errors as
-/// JSON-RPC bodies, and the error for invalid `tools/call` parameters. A Deviation accepting
-/// `rmcp`'s behaviour here has been proposed but is not approved, so MCP-02 stays `todo`;
-/// this part runs against the reference only until that is decided.
+/// JSON-RPC bodies, and the error for invalid `tools/call` parameters. Deviation D13 accepts
+/// `rmcp`'s behaviour here, so this part runs against the reference only; the Rust side is
+/// pinned by the Rust-only test `gateway_endpoints::mcp::d13_mcp_transport_follows_rmcp`.
 #[tokio::test]
 async fn mcp_02_transport_reference_only() {
     run_reference_only("mcp_02_transport_reference_only", &["MCP-02"], |target| async move {

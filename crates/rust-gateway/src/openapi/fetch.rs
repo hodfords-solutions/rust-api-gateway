@@ -42,6 +42,11 @@ pub trait DocumentFetcher: Send + Sync + 'static {
 
 /// The default [`DocumentFetcher`]: a plain `GET` like the reference's axios request,
 /// following up to 21 redirects, with no timeout unless one is set.
+///
+/// `https` URLs are verified with the gateway's TLS settings: by default Mozilla's root
+/// certificates, built in (as Node uses its bundled store), never the host's trust store, so
+/// building a fetcher does not depend on the host having CA certificates. A certificate the
+/// settings do not trust fails that fetch, with the TLS error in the [`FetchError`].
 #[derive(Debug, Clone)]
 pub struct HttpDocumentFetcher {
     client: reqwest::Client,
@@ -50,25 +55,52 @@ pub struct HttpDocumentFetcher {
 impl HttpDocumentFetcher {
     /// A fetcher without a timeout, as the reference has none.
     pub fn new() -> Result<Self, FetchError> {
-        Self::build(None)
+        Self::with_tls(crate::tls::default_client_config(), None)
     }
 
     /// A fetcher whose requests fail after `timeout`.
     pub fn with_timeout(timeout: Duration) -> Result<Self, FetchError> {
-        Self::build(Some(timeout))
+        Self::with_tls(crate::tls::default_client_config(), Some(timeout))
     }
 
-    fn build(timeout: Option<Duration>) -> Result<Self, FetchError> {
-        let mut builder =
-            reqwest::Client::builder().redirect(reqwest::redirect::Policy::limited(21));
+    /// A fetcher that verifies `https` URLs with `tls` (the gateway passes the settings of
+    /// [`GatewayBuilder::upstream_tls`](crate::GatewayBuilder::upstream_tls)), and whose
+    /// requests fail after `timeout` when one is given.
+    pub fn with_tls(
+        tls: rustls::ClientConfig,
+        timeout: Option<Duration>,
+    ) -> Result<Self, FetchError> {
+        let mut builder = reqwest::Client::builder()
+            .tls_backend_preconfigured(tls)
+            .redirect(reqwest::redirect::Policy::limited(21));
         if let Some(timeout) = timeout {
             builder = builder.timeout(timeout);
         }
-        let client = builder
-            .build()
-            .map_err(|error| FetchError::new(format!("cannot build the HTTP client: {error}")))?;
+        let client = builder.build().map_err(|error| {
+            FetchError::new(format!(
+                "cannot build the HTTP client: {}",
+                describe(&error)
+            ))
+        })?;
         Ok(Self { client })
     }
+}
+
+/// An error and its sources, so a TLS failure reads as such ("error sending request for
+/// url (…): client error (Connect): invalid peer certificate: UnknownIssuer") rather than
+/// as reqwest's outermost message alone.
+fn describe(error: &(dyn std::error::Error + 'static)) -> String {
+    let mut text = error.to_string();
+    let mut source = error.source();
+    while let Some(cause) = source {
+        let cause_text = cause.to_string();
+        if !text.ends_with(&cause_text) {
+            text.push_str(": ");
+            text.push_str(&cause_text);
+        }
+        source = cause.source();
+    }
+    text
 }
 
 impl DocumentFetcher for HttpDocumentFetcher {
@@ -80,12 +112,12 @@ impl DocumentFetcher for HttpDocumentFetcher {
                 .header("accept", "application/json, text/plain, */*")
                 .send()
                 .await
-                .map_err(|error| FetchError::new(error.to_string()))?;
+                .map_err(|error| FetchError::new(describe(&error)))?;
             let status = response.status().as_u16();
             let body = response
                 .bytes()
                 .await
-                .map_err(|error| FetchError::new(error.to_string()))?;
+                .map_err(|error| FetchError::new(describe(&error)))?;
             Ok(FetchedDocument {
                 status,
                 body: body.to_vec(),

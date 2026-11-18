@@ -10,7 +10,7 @@ publish.workspace = true
 # Parity Checklist area 08: the MCP server (`mcp` module).
 mcp = ["dep:rmcp"]
 # Parity Checklist area 09: OpenTelemetry tracing (`otel` module).
-otel = ["dep:opentelemetry", "dep:opentelemetry_sdk", "dep:opentelemetry-otlp"]
+otel = ["dep:opentelemetry", "dep:opentelemetry_sdk", "dep:opentelemetry-otlp", "reqwest/blocking"]
 
 [dependencies]
 arc-swap = "1.9.5"

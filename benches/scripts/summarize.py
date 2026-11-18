@@ -160,8 +160,8 @@ def summarize(run_dir: Path) -> tuple[str, int]:
       f"{settings['warmup_s']} s of warm-up, alternating between the gateways (ABBA); keep-alive "
       f"connections: {', '.join(map(str, settings['concurrency']))}.")
     w("- **Middleware (EX-05):** JWT verification (HS256) in the gateway, `auth-user-id` from the token's "
-      "subject, Identity = user id or client address. *This is an assumption about production middleware "
-      "that has not been confirmed.*")
+      "subject, Identity = user id or client address. Confirmed by the user on 2026-11-18 as representative "
+      "of their production middleware.")
     w("")
     w("Columns: req/s, p50 and p99 are medians over the runs (each run's req/s and p99 follow); "
       "*checked* = responses that all had the expected status and matched the upstream's count; "

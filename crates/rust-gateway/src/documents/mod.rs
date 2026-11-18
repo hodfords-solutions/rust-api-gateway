@@ -19,8 +19,9 @@
 //! }
 //! ```
 //!
-//! Like every Express response, the server adds `X-Powered-By: Express`, a weak `ETag` and
-//! `Content-Length`, and answers `HEAD` without the body. The reference applies neither
+//! Like every Express response, the server adds a weak `ETag` and `Content-Length` (and
+//! `X-Powered-By: Express` when it is turned on, Deviation D11), and answers `HEAD` without
+//! the body. The reference applies neither
 //! middleware nor rate limits to these endpoints.
 
 mod json;

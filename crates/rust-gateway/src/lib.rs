@@ -26,6 +26,7 @@ pub mod rate_limit;
 pub mod request;
 pub mod route;
 pub mod server;
+mod tls;
 pub mod upstream;
 
 pub use gateway::{Gateway, GatewayBuilder, GatewayOptions};

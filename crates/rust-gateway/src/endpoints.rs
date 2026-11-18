@@ -82,8 +82,8 @@ pub(crate) async fn dispatch(shared: &Arc<Shared>, request: Request<Body>) -> Re
 }
 
 /// A document endpoint's response, completed as Express's `res.send` completes it:
-/// `Content-Length` and a weak `ETag` (the server adds `X-Powered-By`; Node leaves out the
-/// body of a `HEAD` response). Errors go through the error renderer (REQ-25).
+/// `Content-Length` and a weak `ETag` (the server adds `X-Powered-By` when it is turned on,
+/// Deviation D11; Node leaves out the body of a `HEAD` response). Errors go through the error renderer (REQ-25).
 async fn document_response(
     shared: &Arc<Shared>,
     documents: &DocumentEndpoints,
