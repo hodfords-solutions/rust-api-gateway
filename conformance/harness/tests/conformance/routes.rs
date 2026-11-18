@@ -1,4 +1,4 @@
-//! Route matching: OAS-19 (with OAS-21) and OAS-20.
+//! Route matching: OAS-18, OAS-19 (with OAS-21) and OAS-20.
 
 use conformance::client::Request;
 use conformance::mock::MockUpstream;
@@ -162,6 +162,74 @@ async fn oas_20_router_path_syntax() {
                     (
                         "GET /svc/v1/paths/anonymous/x",
                         "(no operationId) \"/v1/paths/anonymous/{slug}\" -> /v1/paths/anonymous/x/",
+                    ),
+                ],
+            );
+            let mut obs = Observations::new();
+            obs.record("matches", &observed);
+            Ok(obs)
+        },
+    )
+    .await;
+}
+
+/// OAS-18: matching reads the WHATWG URL path of the request target, so the query and
+/// fragment are ignored, dot segments (also percent-encoded ones) are resolved, `\` reads
+/// as `/`, and characters URL parsing percent-encodes are compared encoded. Only the
+/// matched Route is recorded; what is forwarded belongs to the request pipeline.
+#[tokio::test]
+async fn oas_18_matching_uses_the_url_path() {
+    run(
+        "oas_18_matching_uses_the_url_path",
+        &["OAS-18"],
+        |target| async move {
+            let (mock, gw) = users_gateway(&target, |c| c).await?;
+            let cases = [
+                ("GET", "/svc/v1/users?redirect=/v1/users/42"),
+                ("GET", "/svc/v1/users#fragment"),
+                ("GET", "/svc/v1/users/42?x=1#y"),
+                ("GET", "/svc/v1/./users"),
+                ("GET", "/svc/v1/users/../users/42"),
+                ("GET", "/svc/v1/users/%2e%2e/users/42"),
+                ("GET", "/svc/v1/users/42/.."),
+                ("GET", "/svc/v1\\users"),
+                ("GET", "/svc/v1/users/a^b"),
+                ("GET", "/svc/v1/users/a{b}"),
+                ("GET", "/svc/v1/users/a|b"),
+                ("GET", "/svc/v1/paths/escaped:literal?q"),
+            ];
+            let observed: Vec<(String, String)> = match_table(&mock, &gw, &cases)
+                .await?
+                .into_iter()
+                .map(|(request, outcome)| {
+                    let route = outcome.split(" -> ").next().unwrap_or_default().to_string();
+                    (request, route)
+                })
+                .collect();
+            assert_table(
+                "OAS-18",
+                &observed,
+                &[
+                    (
+                        "GET /svc/v1/users?redirect=/v1/users/42",
+                        "UsersController_listUsers",
+                    ),
+                    ("GET /svc/v1/users#fragment", "UsersController_listUsers"),
+                    ("GET /svc/v1/users/42?x=1#y", "UsersController_getUser"),
+                    ("GET /svc/v1/./users", "UsersController_listUsers"),
+                    ("GET /svc/v1/users/../users/42", "UsersController_getUser"),
+                    (
+                        "GET /svc/v1/users/%2e%2e/users/42",
+                        "UsersController_getUser",
+                    ),
+                    ("GET /svc/v1/users/42/..", "UsersController_listUsers"),
+                    ("GET /svc/v1\\users", "UsersController_listUsers"),
+                    ("GET /svc/v1/users/a^b", "UsersController_getUser"),
+                    ("GET /svc/v1/users/a{b}", "UsersController_getUser"),
+                    ("GET /svc/v1/users/a|b", "UsersController_getUser"),
+                    (
+                        "GET /svc/v1/paths/escaped:literal?q",
+                        "PathsController_escaped",
                     ),
                 ],
             );

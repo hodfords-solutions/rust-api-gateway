@@ -1,0 +1,634 @@
+{
+ "generator": "crates/rust-gateway/src/openapi/testdata/generate-camelcase-keys.mjs",
+ "camelcaseKeysVersion": "10.0.3",
+ "node": "v24.20.0",
+ "unicode": "17.0",
+ "keys": [
+  {
+   "input": "operationId",
+   "output": "operationId"
+  },
+  {
+   "input": "summary",
+   "output": "summary"
+  },
+  {
+   "input": "description",
+   "output": "description"
+  },
+  {
+   "input": "tags",
+   "output": "tags"
+  },
+  {
+   "input": "parameters",
+   "output": "parameters"
+  },
+  {
+   "input": "requestBody",
+   "output": "requestBody"
+  },
+  {
+   "input": "responses",
+   "output": "responses"
+  },
+  {
+   "input": "callbacks",
+   "output": "callbacks"
+  },
+  {
+   "input": "deprecated",
+   "output": "deprecated"
+  },
+  {
+   "input": "security",
+   "output": "security"
+  },
+  {
+   "input": "servers",
+   "output": "servers"
+  },
+  {
+   "input": "externalDocs",
+   "output": "externalDocs"
+  },
+  {
+   "input": "x-rate-limits",
+   "output": "xRateLimits"
+  },
+  {
+   "input": "x-router-path",
+   "output": "xRouterPath"
+  },
+  {
+   "input": "x-api-mcp",
+   "output": "xApiMcp"
+  },
+  {
+   "input": "x-codeSamples",
+   "output": "xCodeSamples"
+  },
+  {
+   "input": "x-code-samples",
+   "output": "xCodeSamples"
+  },
+  {
+   "input": "x-internal",
+   "output": "xInternal"
+  },
+  {
+   "input": "x-oauth2-scopes",
+   "output": "xOauth2Scopes"
+  },
+  {
+   "input": "x-v2",
+   "output": "xV2"
+  },
+  {
+   "input": "x-api-v2-mcp",
+   "output": "xApiV2Mcp"
+  },
+  {
+   "input": "x-foo_bar",
+   "output": "xFooBar"
+  },
+  {
+   "input": "x_foo",
+   "output": "xFoo"
+  },
+  {
+   "input": "x__foo",
+   "output": "xFoo"
+  },
+  {
+   "input": "x--foo",
+   "output": "xFoo"
+  },
+  {
+   "input": "x-_-foo",
+   "output": "xFoo"
+  },
+  {
+   "input": "x-foo-",
+   "output": "xFoo"
+  },
+  {
+   "input": "x-",
+   "output": "x"
+  },
+  {
+   "input": "-x",
+   "output": "x"
+  },
+  {
+   "input": "_private",
+   "output": "_private"
+  },
+  {
+   "input": "__proto__",
+   "output": "__proto"
+  },
+  {
+   "input": "$ref",
+   "output": "$ref"
+  },
+  {
+   "input": "$$x",
+   "output": "$$x"
+  },
+  {
+   "input": "_$x",
+   "output": "_$x"
+  },
+  {
+   "input": "$_x",
+   "output": "$_x"
+  },
+  {
+   "input": "x-1",
+   "output": "x1"
+  },
+  {
+   "input": "x-1a",
+   "output": "x1A"
+  },
+  {
+   "input": "x-a1",
+   "output": "xA1"
+  },
+  {
+   "input": "x-a1b",
+   "output": "xA1B"
+  },
+  {
+   "input": "x-a1-b",
+   "output": "xA1B"
+  },
+  {
+   "input": "x-a12-b",
+   "output": "xA12B"
+  },
+  {
+   "input": "x-a12#b",
+   "output": "xA12#b"
+  },
+  {
+   "input": "x-123",
+   "output": "x123"
+  },
+  {
+   "input": "123abc",
+   "output": "123Abc"
+  },
+  {
+   "input": "b2b_registration",
+   "output": "b2bRegistration"
+  },
+  {
+   "input": "x-foo-123-bar",
+   "output": "xFoo123Bar"
+  },
+  {
+   "input": "foo2Bar",
+   "output": "foo2Bar"
+  },
+  {
+   "input": "foo2bar",
+   "output": "foo2Bar"
+  },
+  {
+   "input": "a1A",
+   "output": "a1A"
+  },
+  {
+   "input": "x-1.5",
+   "output": "x15"
+  },
+  {
+   "input": "X-Rate-Limits",
+   "output": "xRateLimits"
+  },
+  {
+   "input": "XRateLimits",
+   "output": "xrateLimits"
+  },
+  {
+   "input": "x-HTTPMethod",
+   "output": "xHttpMethod"
+  },
+  {
+   "input": "x-URL",
+   "output": "xUrl"
+  },
+  {
+   "input": "x-iOS",
+   "output": "xIOs"
+  },
+  {
+   "input": "A",
+   "output": "a"
+  },
+  {
+   "input": "AB",
+   "output": "ab"
+  },
+  {
+   "input": "ABc",
+   "output": "abc"
+  },
+  {
+   "input": "FOOBar",
+   "output": "fooBar"
+  },
+  {
+   "input": "fooBAR",
+   "output": "fooBar"
+  },
+  {
+   "input": "fooBarBaz",
+   "output": "fooBarBaz"
+  },
+  {
+   "input": "x-Foo-BAR-baz",
+   "output": "xFooBarBaz"
+  },
+  {
+   "input": "ID",
+   "output": "id"
+  },
+  {
+   "input": "userID",
+   "output": "userId"
+  },
+  {
+   "input": "XMLHttpRequest",
+   "output": "xmlHttpRequest"
+  },
+  {
+   "input": "foo.bar",
+   "output": "fooBar"
+  },
+  {
+   "input": "x.y.z",
+   "output": "xYZ"
+  },
+  {
+   "input": "foo bar",
+   "output": "fooBar"
+  },
+  {
+   "input": " padded ",
+   "output": "padded"
+  },
+  {
+   "input": "_",
+   "output": "_"
+  },
+  {
+   "input": "-",
+   "output": ""
+  },
+  {
+   "input": ".",
+   "output": ""
+  },
+  {
+   "input": " ",
+   "output": ""
+  },
+  {
+   "input": "a",
+   "output": "a"
+  },
+  {
+   "input": " x",
+   "output": "x"
+  },
+  {
+   "input": "﻿x",
+   "output": "x"
+  },
+  {
+   "input": "x",
+   "output": "x"
+  },
+  {
+   "input": "x- foo",
+   "output": "x- foo"
+  },
+  {
+   "input": "a\tb",
+   "output": "a\tb"
+  },
+  {
+   "input": "1",
+   "output": "1"
+  },
+  {
+   "input": "0",
+   "output": "0"
+  },
+  {
+   "input": "01",
+   "output": "01"
+  },
+  {
+   "input": "1.5",
+   "output": "1.5"
+  },
+  {
+   "input": "1e3",
+   "output": "1e3"
+  },
+  {
+   "input": "1E+3",
+   "output": "1E+3"
+  },
+  {
+   "input": "0x10",
+   "output": "0x10"
+  },
+  {
+   "input": "0X1f",
+   "output": "0X1f"
+  },
+  {
+   "input": "0o7",
+   "output": "0o7"
+  },
+  {
+   "input": "0b101",
+   "output": "0b101"
+  },
+  {
+   "input": " 12 ",
+   "output": " 12 "
+  },
+  {
+   "input": "-5",
+   "output": "-5"
+  },
+  {
+   "input": "+5",
+   "output": "+5"
+  },
+  {
+   "input": ".5",
+   "output": ".5"
+  },
+  {
+   "input": "5.",
+   "output": "5."
+  },
+  {
+   "input": "Infinity",
+   "output": "Infinity"
+  },
+  {
+   "input": "-Infinity",
+   "output": "-Infinity"
+  },
+  {
+   "input": "NaN",
+   "output": "naN"
+  },
+  {
+   "input": "1_000",
+   "output": "1000"
+  },
+  {
+   "input": "0x",
+   "output": "0X"
+  },
+  {
+   "input": "--5",
+   "output": "5"
+  },
+  {
+   "input": "",
+   "output": ""
+  },
+  {
+   "input": "  ",
+   "output": ""
+  },
+  {
+   "input": "x-émoji",
+   "output": "xÉmoji"
+  },
+  {
+   "input": "x-Émoji",
+   "output": "xÉmoji"
+  },
+  {
+   "input": "x-ß",
+   "output": "xSS"
+  },
+  {
+   "input": "x-Σa",
+   "output": "xΣa"
+  },
+  {
+   "input": "x-İstanbul",
+   "output": "xİstanbul"
+  },
+  {
+   "input": "x-𝐀b",
+   "output": "x𝐀b"
+  },
+  {
+   "input": "x-ǅ",
+   "output": "xǄ"
+  },
+  {
+   "input": "x-ⓐb",
+   "output": "xⒶb"
+  },
+  {
+   "input": "x-Ⓐb",
+   "output": "xⒶb"
+  },
+  {
+   "input": "x-ⅰb",
+   "output": "xⅠb"
+  },
+  {
+   "input": "x-Ⅱb",
+   "output": "xⅡb"
+  },
+  {
+   "input": "x-café-au-lait",
+   "output": "xCaféAuLait"
+  },
+  {
+   "input": "x-١٢",
+   "output": "x١٢"
+  }
+ ],
+ "objects": [
+  {
+   "input": "{\"operationId\":\"UsersController_createUser\",\"summary\":\"Create\",\"description\":\"Creates a user\",\"parameters\":[],\"requestBody\":{\"required\":true,\"content\":{}},\"responses\":{\"201\":{\"description\":\"\"}},\"tags\":[\"users\"],\"security\":[{\"bearer\":[]}],\"x-rate-limits\":[{\"limit\":1,\"ttl\":60,\"status\":201}],\"x-router-path\":\"/v1/users\",\"x-api-mcp\":[{\"description\":\"tool\"}],\"x-codeSamples\":[]}",
+   "output": [
+    [
+     "operationId",
+     "UsersController_createUser"
+    ],
+    [
+     "summary",
+     "Create"
+    ],
+    [
+     "description",
+     "Creates a user"
+    ],
+    [
+     "parameters",
+     []
+    ],
+    [
+     "requestBody",
+     {
+      "required": true,
+      "content": {}
+     }
+    ],
+    [
+     "responses",
+     {
+      "201": {
+       "description": ""
+      }
+     }
+    ],
+    [
+     "tags",
+     [
+      "users"
+     ]
+    ],
+    [
+     "security",
+     [
+      {
+       "bearer": []
+      }
+     ]
+    ],
+    [
+     "xRateLimits",
+     [
+      {
+       "limit": 1,
+       "ttl": 60,
+       "status": 201
+      }
+     ]
+    ],
+    [
+     "xRouterPath",
+     "/v1/users"
+    ],
+    [
+     "xApiMcp",
+     [
+      {
+       "description": "tool"
+      }
+     ]
+    ],
+    [
+     "xCodeSamples",
+     []
+    ]
+   ]
+  },
+  {
+   "input": "{\"x-foo\":1,\"xFoo\":2,\"x_foo\":3,\"other\":4}",
+   "output": [
+    [
+     "xFoo",
+     3
+    ],
+    [
+     "other",
+     4
+    ]
+   ]
+  },
+  {
+   "input": "{\"b\":1,\"2\":2,\"a\":3,\"1\":4,\"x-1\":5,\"10\":6,\"4294967294\":7,\"4294967295\":8,\"-1\":9,\"01\":10}",
+   "output": [
+    [
+     "1",
+     4
+    ],
+    [
+     "2",
+     2
+    ],
+    [
+     "10",
+     6
+    ],
+    [
+     "4294967294",
+     7
+    ],
+    [
+     "b",
+     1
+    ],
+    [
+     "a",
+     3
+    ],
+    [
+     "x1",
+     5
+    ],
+    [
+     "4294967295",
+     8
+    ],
+    [
+     "-1",
+     9
+    ],
+    [
+     "01",
+     10
+    ]
+   ]
+  },
+  {
+   "input": "{\"a\":1,\"b\":2,\"a\":3}",
+   "output": [
+    [
+     "a",
+     3
+    ],
+    [
+     "b",
+     2
+    ]
+   ]
+  },
+  {
+   "input": "{\"__proto__\":1,\"x\":2}",
+   "output": [
+    [
+     "__proto",
+     1
+    ],
+    [
+     "x",
+     2
+    ]
+   ]
+  },
+  {
+   "input": "{}",
+   "output": []
+  }
+ ]
+}
