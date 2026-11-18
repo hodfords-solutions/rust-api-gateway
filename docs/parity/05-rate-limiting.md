@@ -51,4 +51,4 @@ Tests: Conformance Tests in `conformance/harness/tests/conformance/rate_limit.rs
 
 | ID | Behaviour | Reference | Test | Status |
 |---|---|---|---|---|
-| RL-24 | Static Requests, Bypass Requests, WebSocket upgrades and requests with no matching Route are never rate limited. | `restful/services/proxy.service.ts:224-227,259-273` | C (`rate_limit::rl_24_scope`) | todo |
+| RL-24 | Static Requests, Bypass Requests, WebSocket upgrades and requests with no matching Route are never rate limited. | `restful/services/proxy.service.ts:224-227,259-273` | C (`rate_limit::rl_24_scope`) | | done |
