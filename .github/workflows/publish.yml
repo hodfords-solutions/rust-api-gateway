@@ -1,0 +1,90 @@
+name: Publish to crates.io
+
+# Publishes the library crate (`api-gateway`) when main carries a version that crates.io
+# does not have yet: the counterpart of nestjs-api-gateway's "publish on push to main".
+# To release, bump `version` in crates/rust-gateway/Cargo.toml and push to main.
+#
+# It runs once CI has passed for that push, so a commit that fails the tests is never
+# published. A manual run publishes the current main the same way, without waiting for CI.
+#
+# Needs the CRATE_TOKEN secret: a crates.io API token allowed to publish `api-gateway`.
+# A published version cannot be replaced or deleted, only yanked.
+
+on:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: publish
+  cancel-in-progress: false
+
+env:
+  CARGO_TERM_COLOR: always
+  CRATE: api-gateway
+
+jobs:
+  publish:
+    name: Publish api-gateway
+    runs-on: ubuntu-latest
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push')
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # The commit CI passed for, not whatever main has become since.
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Compare the version with crates.io
+        id: version
+        run: |
+          version=$(cargo metadata --no-deps --format-version 1 \
+            | jq -r --arg crate "$CRATE" '.packages[] | select(.name == $crate) | .version')
+          if [ -z "$version" ]; then
+            echo "::error::No package named $CRATE in the workspace."
+            exit 1
+          fi
+          # The sparse index holds one JSON line per published version of a crate, and
+          # answers 404 for a crate that was never published.
+          index="https://index.crates.io/${CRATE:0:2}/${CRATE:2:2}/$CRATE"
+          status=$(curl --silent --show-error --output "$RUNNER_TEMP/index.jsonl" --write-out '%{http_code}' "$index")
+          case "$status" in
+            200)
+              if jq -e --arg version "$version" 'select(.vers == $version)' "$RUNNER_TEMP/index.jsonl" > /dev/null; then
+                published=true
+              else
+                published=false
+              fi
+              ;;
+            404) published=false ;;
+            *)
+              echo "::error::The crates.io index answered $status for $CRATE."
+              exit 1
+              ;;
+          esac
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "published=$published" >> "$GITHUB_OUTPUT"
+          if [ "$published" = true ]; then
+            echo "$CRATE $version is already on crates.io; nothing to publish." | tee -a "$GITHUB_STEP_SUMMARY"
+          else
+            echo "$CRATE $version is not on crates.io yet; publishing." | tee -a "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Publish
+        if: steps.version.outputs.published == 'false'
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CRATE_TOKEN }}
+        run: |
+          if [ -z "$CARGO_REGISTRY_TOKEN" ]; then
+            echo "::error::The CRATE_TOKEN secret is not available to this repository."
+            exit 1
+          fi
+          cargo publish -p "$CRATE" --locked
