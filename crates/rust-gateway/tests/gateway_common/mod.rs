@@ -294,9 +294,21 @@ pub async fn serve(builder: GatewayBuilder, wait: bool) -> Served {
 }
 
 /// A client that never pools, so every request is its own connection.
+///
+/// It only speaks plain `http` to the gateway, so its TLS settings trust no roots: building
+/// it reads nothing from the host's trust store, which the child process of
+/// `gateway_forwarding::startup_needs_no_system_trust_store` empties on Linux (a client
+/// verifying with the platform's roots fails to build there).
 pub fn client() -> reqwest::Client {
+    let provider = Arc::new(rustls::crypto::ring::default_provider());
+    let tls = rustls::ClientConfig::builder_with_provider(provider)
+        .with_safe_default_protocol_versions()
+        .expect("TLS protocol versions")
+        .with_root_certificates(rustls::RootCertStore::empty())
+        .with_no_client_auth();
     reqwest::Client::builder()
         .pool_max_idle_per_host(0)
+        .tls_backend_preconfigured(tls)
         .build()
         .expect("client")
 }
