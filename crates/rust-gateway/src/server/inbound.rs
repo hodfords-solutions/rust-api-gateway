@@ -411,6 +411,37 @@ mod tests {
         assert_eq!(&out[..], b"GET /%3Cx%3E HTTP/1.1\r\nUpgrade: h2c\r\n\r\n");
     }
 
+    // Open fuzz finding FUZZ-01 (docs/security/fuzzing.md): heads are found by `\r\n\r\n`
+    // only, while hyper also ends a head at a bare `\n\n`, so the second head below reaches
+    // hyper unrewritten. Node answers 400 to the bare-LF head.
+    #[test]
+    #[ignore = "fuzz finding FUZZ-01: bare-LF heads bypass the target rewrite"]
+    fn fuzz_01_a_bare_lf_head_does_not_hide_the_next_head() {
+        let out = run(&[
+            "GET /a HTTP/1.1\nHost: h\n\nGET /\u{e9} HTTP/1.1\r\nHost: h\r\n\r\n".as_bytes(),
+        ]);
+        assert!(
+            out.iter().all(|&b| b <= 0x7e),
+            "a raw non-ASCII target reaches hyper: {:?}",
+            String::from_utf8_lossy(&out)
+        );
+    }
+
+    // Open fuzz finding FUZZ-05 (docs/security/fuzzing.md): empty lines before the first
+    // request line are taken for a head of their own, which has no request line and makes
+    // the rest of the connection opaque. hyper and Node both skip such lines; Node then
+    // answers 400 to the non-ASCII target.
+    #[test]
+    #[ignore = "fuzz finding FUZZ-05: leading empty lines stop the target rewrite"]
+    fn fuzz_05_leading_empty_lines_do_not_stop_the_rewrite() {
+        let out = run(&["\r\n\r\nGET /\u{e9} HTTP/1.1\r\nHost: h\r\n\r\n".as_bytes()]);
+        assert!(
+            out.iter().all(|&b| b <= 0x7e),
+            "a raw non-ASCII target reaches hyper: {:?}",
+            String::from_utf8_lossy(&out)
+        );
+    }
+
     #[test]
     fn upgrades_stop_the_rewriting() {
         assert_eq!(

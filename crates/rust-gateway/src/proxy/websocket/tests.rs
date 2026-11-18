@@ -548,3 +548,16 @@ fn strips_caller_supplied_excluded_headers_from_the_upgrade_request_itself() {
         )]
     );
 }
+
+// Open fuzz finding FUZZ-02 (docs/security/fuzzing.md): the reason phrase runs to the first
+// CRLF, so a status line ended by a bare LF takes the next header line with it into the
+// refusal line written to the client. Node's client rejects such a head (HPE_CR_EXPECTED).
+#[test]
+#[ignore = "fuzz finding FUZZ-02: bare LF in the upstream status line reaches the refusal line"]
+fn fuzz_02_the_refusal_line_is_one_line() {
+    let raw = b"HTTP/1.1 401 Nope\nX-Injected: 1\r\nContent-Length: 0\r\n\r\n";
+    if let Some(response) = parse_response_head(raw) {
+        let line = refusal_line(Version::HTTP_11, response.status, &response.reason);
+        assert!(!line.contains(['\r', '\n']), "refusal line {line:?}");
+    }
+}
