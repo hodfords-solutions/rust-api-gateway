@@ -9,6 +9,7 @@ publish.workspace = true
 [dependencies]
 arc-swap = "1.9.5"
 http = "1.5.0"
+indexmap = "2.14.2"
 redis = { version = "1.8.2", default-features = false, features = ["aio", "tokio-comp", "script"] }
 regex = "1.13.2"
 reqwest = { version = "0.13.5", default-features = false, features = ["rustls", "system-proxy"] }
