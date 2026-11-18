@@ -2,7 +2,7 @@
 
 ## TypeScript export → Rust
 
-Every name exported from `libs/api-gateway/index.ts`, and what an application uses instead in `rust-gateway`. Rust names follow [CONTEXT.md](../../CONTEXT.md) and are proposals until the first implementation session fixes them; the finished table is copied into the README.
+Every name exported from `libs/api-gateway/index.ts`, and what an application uses instead in `rust-gateway`. Rust names follow [CONTEXT.md](../../CONTEXT.md). A shorter version of this table is in the [README](../../README.md#coming-from-the-nestjs-library).
 
 | ID | TypeScript export | Rust counterpart | Reference | Status |
 |---|---|---|---|---|
