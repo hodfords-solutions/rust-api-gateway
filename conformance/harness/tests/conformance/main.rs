@@ -9,5 +9,6 @@ mod documents;
 mod errors;
 mod forwarding;
 mod mcp;
+mod pipeline;
 mod pool;
 mod routes;
