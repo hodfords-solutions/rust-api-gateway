@@ -25,7 +25,7 @@ Upgrade requests take a separate, shorter path than HTTP requests. Several behav
 
 | ID | Behaviour | Reference | Test | Status |
 |---|---|---|---|---|
-| WS-10 | When the upstream accepts, the client receives `HTTP/1.1 101 Switching Protocols` followed by the upstream's response headers as received; a repeated header is written once per value. | `proxy/proxy-socket.ts:25-46,119` | C, U | todo |
+| WS-10 | When the upstream accepts, the client receives `HTTP/1.1 101 Switching Protocols` followed by the upstream's response headers. A header the upstream repeated is written as one line with the values joined by `, ` (Node joins them before the gateway sees them); only `set-cookie` is written once per value. Observed by the HTTP stack spike's checks against the reference. | `proxy/proxy-socket.ts:25-46,119` | C, U | todo |
 | WS-11 | After the 101, bytes flow both ways unmodified. | `proxy/proxy-socket.ts:121` | C | todo |
 | WS-12 | Bytes that arrive together with the handshake are not lost in either direction. A server that speaks first (Engine.IO sends its open packet immediately) is received intact. | `proxy/proxy-socket.ts:100-117` | C, U | todo |
 | WS-13 | The tunnel has no idle timeout on either side; an idle connection stays open. | `proxy/proxy-socket.ts:77-79,109` | C, U | todo |
