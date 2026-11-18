@@ -10,6 +10,8 @@
 //! This crate is pre-parity: no gateway behaviour is implemented yet.
 
 pub mod error;
+#[cfg(feature = "mcp")]
+pub mod mcp;
 pub mod openapi;
 pub mod rate_limit;
 pub mod request;
