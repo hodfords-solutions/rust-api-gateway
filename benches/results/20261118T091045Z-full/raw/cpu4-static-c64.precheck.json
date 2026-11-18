@@ -1,0 +1,12 @@
+{
+  "rust": {
+    "status": 200,
+    "bytes": 2048,
+    "sha256": "1f60eed7e0a6d1972a82adb84f79d74729d494fe5ff6d0388856c11610b7da90"
+  },
+  "reference": {
+    "status": 200,
+    "bytes": 2048,
+    "sha256": "1f60eed7e0a6d1972a82adb84f79d74729d494fe5ff6d0388856c11610b7da90"
+  }
+}

@@ -11,16 +11,129 @@ JavaScript.
 
 ## Official results
 
-Not run yet. They must be taken on a quiet machine (no builds, tests or other containers
-running; check the load average first) with:
+The run below was taken on 2026-11-18 on a developer's desktop that was not idle (a browser,
+an editor and system indexing were running), so treat the figures as indicative.
+
+Part of it was disturbed more than that. From about 10:36 UTC another build was compiling on
+the host. The points measured after that are the 4-CPU ones for `post_json` at 256
+connections, `get_large`, `reject_401` and `static`; some of their runs spread widely (for
+example Rust `reject_401` at 256 connections: 36,730, 40,293 and 20,289 req/s). All 1-CPU
+points and the headline `get_small` at 4 CPUs were measured before it started.
+
+To repeat it on a quiet machine (no builds, tests or other containers running; check the
+load average first):
 
 ```bash
 python3 benches/scripts/bench.py
 ```
 
-It takes about an hour and replaces the section between the markers below.
+It takes about an hour once the images are built, and replaces the section between the
+markers below.
 
 <!-- BEGIN official -->
+Run `20261118T091045Z-full`, started 2026-11-18T09:55:21+00:00, finished 2026-11-18T10:51:33+00:00. Raw results: `benches/results/20261118T091045Z-full/`.
+
+- **Machine:** Apple M1 Pro (10 CPUs, 32 GiB), macOS 26.3 (Darwin 25.3.0)
+- **Docker:** 29.2.1 (linux/arm64); VM with 10 CPUs and 7.7 GiB (Docker Desktop, kernel 6.12.69-linuxkit)
+- **Gateways:** rust-gateway-server 0.0.0 at 41b4f692f921 (built with rustc 1.100.0 (0ef1bc386 2026-11-09)); @hodfords/nestjs-api-gateway 12.4.2 on Node v24.20.0, one process
+- **Tools:** oha 1.17.0; Redis server v=7.4.12 sha=00000000:0 malloc=jemalloc-5.3.0 bits=64 build=6d565d4e3893fa59
+- **Commit:** `41b4f692f92100269e7b24308c1bddd600f10fa3`
+- **Load average (1, 5, 15 min):** host [15.97, 17.86, 14.43] before, [5.32, 8.95, 9.32] after; Docker VM ['1.31', '0.54', '0.45'] before, ['3.65', '3.95', '3.75'] after  **(busy machine: numbers are not comparable to a quiet run)**
+- **CPU sets:** gateway 0 (1 CPU), 0-3 (4 CPU), memory 1g, the same for both gateways; upstream 4-5; Redis 6; oha 7-9. The gateway not being measured is paused.
+- **Load:** 3 runs of 20 s per gateway per point, after 5 s of warm-up, alternating between the gateways (ABBA); keep-alive connections: 64, 256.
+- **Middleware (EX-05):** JWT verification (HS256) in the gateway, `auth-user-id` from the token's subject, Identity = user id or client address. *This is an assumption about production middleware that has not been confirmed.*
+
+Columns: req/s, p50 and p99 are medians over the runs (each run's req/s and p99 follow); *checked* = responses that all had the expected status and matched the upstream's count; peak RSS = `VmHWM` of the gateway process over the whole point (warm-up and all runs); CPU = `docker stats` halfway through each run, gateway · upstream · Redis.
+
+#### Mock upstream measured directly (its ceiling)
+
+| scenario | conc | req/s (median) | p99 ms | req/s of each run |
+|---|---|---|---|---|
+| get_small | 64 | 214,318 | 1.99 | 214,318, 205,345, 221,547 |
+| get_small | 256 | 256,884 | 2.71 | 259,676, 236,215, 256,884 |
+| post_json | 64 | 198,019 | 0.88 | 208,693, 188,377, 198,019 |
+| post_json | 256 | 209,162 | 3.49 | 208,042, 211,663, 209,162 |
+| get_large | 64 | 8,340 | 17.29 | 8,423, 8,340, 8,122 |
+| get_large | 256 | 7,675 | 52.04 | 7,675, 7,654, 8,254 |
+| static | 64 | 205,126 | 0.75 | 191,330, 205,126, 223,571 |
+| static | 256 | 215,251 | 2.10 | 215,251, 209,357, 221,492 |
+
+#### 1 CPU per gateway (CPU set 0)
+
+| scenario | conc | gateway | req/s | p50 ms | p99 ms | checked | non-expected | errors | peak RSS | req/s of each run | p99 ms of each run | CPU % |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| **get_small** | 64 | Rust | 13,182 | 4.72 | 6.96 | 791,277 | 0 | 0 | 23.0 MiB | 13,135, 13,234, 13,182 | 7.17, 6.75, 6.96 | 101.14%/101.50%/101.47% · 16.23%/16.38%/16.11% · 26.55%/26.43%/27.08% |
+| **get_small** | 64 | Reference | 4,322 | 11.85 | 51.62 | 260,449 | 0 | 0 | 219.9 MiB | 4,322, 4,411, 4,282 | 51.62, 51.46, 54.04 | 100.83%/100.61%/100.38% · 4.78%/4.71%/4.53% · 10.57%/10.71%/10.51% |
+| **get_small** | 256 | Rust | 13,991 | 18.00 | 25.00 | 811,992 | 0 | 0 | 33.4 MiB | 12,459, 13,991, 14,110 | 26.57, 25.00, 24.71 | 100.76%/100.55%/100.79% · 16.27%/15.62%/15.66% · 9.29%/9.19%/9.18% |
+| **get_small** | 256 | Reference | 4,019 | 56.15 | 118.76 | 241,463 | 0 | 0 | 226.9 MiB | 3,930, 4,019, 4,099 | 119.60, 118.76, 110.22 | 100.43%/100.08%/100.45% · 4.33%/4.19%/4.41% · 9.88%/9.79%/9.88% |
+| post_json | 64 | Rust | 12,082 | 5.23 | 7.28 | 724,856 | 0 | 0 | 24.2 MiB | 12,140, 12,010, 12,082 | 7.09, 7.34, 7.28 | 101.57%/101.09%/101.47% · 21.61%/21.81%/22.07% · 28.25%/28.33%/28.28% |
+| post_json | 64 | Reference | 3,894 | 13.56 | 55.10 | 233,528 | 0 | 0 | 192.9 MiB | 3,875, 3,894, 3,895 | 54.55, 55.58, 55.10 | 102.58%/100.56%/100.44% · 7.28%/7.09%/7.02% · 11.90%/11.86%/12.06% |
+| post_json | 256 | Rust | 12,495 | 20.33 | 25.77 | 749,562 | 0 | 0 | 37.1 MiB | 12,452, 12,495, 12,496 | 26.25, 25.77, 25.70 | 100.95%/103.01%/101.18% · 19.18%/19.65%/19.57% · 12.41%/12.54%/12.39% |
+| post_json | 256 | Reference | 3,734 | 60.81 | 113.04 | 223,711 | 0 | 0 | 200.4 MiB | 3,671, 3,747, 3,734 | 114.60, 110.56, 113.04 | 100.66%/100.73%/100.34% · 7.07%/6.77%/6.99% · 10.70%/11.09%/10.78% |
+| get_large | 64 | Rust | 2,437 | 26.23 | 36.81 | 146,325 | 0 | 0 | 62.6 MiB | 2,424, 2,437, 2,447 | 36.81, 37.00, 36.38 | 99.33%/99.36%/99.35% · 29.21%/30.08%/30.01% · 6.55%/6.61%/6.68% |
+| get_large | 64 | Reference | 640 | 100.08 | 147.51 | 37,807 | 0 | 0 | 287.8 MiB | 601, 640, 640 | 171.21, 147.51, 140.70 | 100.42%/100.52%/101.53% · 8.77%/8.52%/8.83% · 2.50%/2.45%/2.31% |
+| get_large | 256 | Rust | 2,322 | 109.62 | 140.52 | 140,081 | 0 | 0 | 130.8 MiB | 2,304, 2,322, 2,343 | 140.52, 139.60, 146.89 | 100.00%/99.29%/99.05% · 29.03%/29.83%/29.64% · 2.34%/3.00%/2.66% |
+| get_large | 256 | Reference | 588 | 401.14 | 2,750.24 | 35,789 | 0 | 0 | 301.0 MiB | 544, 588, 622 | 2,383.20, 2,750.24, 2,894.15 | 100.35%/100.11%/100.42% · 6.53%/6.92%/8.43% · 1.69%/1.98%/1.93% |
+| reject_401 | 64 | Rust | 18,832 | 3.23 | 5.01 | 1,124,729 | 0 | 0 | 19.6 MiB | 18,495, 18,832, 18,897 | 5.11, 5.01, 4.99 | 101.29%/101.29%/100.98% · 0.00%/0.00%/0.00% · 36.91%/35.85%/35.70% |
+| reject_401 | 64 | Reference | 7,082 | 8.63 | 14.73 | 418,360 | 0 | 0 | 163.0 MiB | 6,714, 7,113, 7,082 | 15.66, 14.42, 14.73 | 100.58%/100.15%/100.37% · 0.00%/0.00%/0.00% · 17.77%/17.48%/17.39% |
+| reject_401 | 256 | Rust | 21,889 | 11.34 | 15.13 | 1,315,036 | 0 | 0 | 28.6 MiB | 21,856, 21,889, 21,973 | 15.13, 15.28, 14.56 | 100.66%/100.57%/100.31% · 0.00%/0.00%/0.00% · 12.87%/13.05%/12.82% |
+| reject_401 | 256 | Reference | 6,972 | 35.79 | 46.41 | 408,304 | 0 | 0 | 170.5 MiB | 7,086, 6,972, 6,325 | 46.41, 44.84, 81.74 | 100.45%/100.48%/100.48% · 0.00%/0.01%/0.00% · 16.91%/17.08%/16.63% |
+| static | 64 | Rust | 25,070 | 2.39 | 4.11 | 1,491,868 | 0 | 0 | 23.1 MiB | 24,400, 25,106, 25,070 | 4.19, 3.95, 4.11 | 101.39%/101.49%/101.45% · 28.21%/30.64%/31.41% · 0.32%/0.31%/0.28% |
+| static | 64 | Reference | 7,255 | 5.74 | 39.30 | 426,584 | 0 | 0 | 225.7 MiB | 7,303, 7,255, 6,731 | 39.08, 39.30, 42.68 | 100.25%/100.69%/100.48% · 7.62%/7.60%/7.77% · 0.28%/0.29%/0.29% |
+| static | 256 | Rust | 19,931 | 12.75 | 19.85 | 1,157,436 | 0 | 0 | 34.5 MiB | 17,923, 19,931, 19,971 | 46.10, 19.85, 19.72 | 100.86%/101.30%/100.97% · 25.79%/28.35%/28.79% · 0.37%/0.36%/0.38% |
+| static | 256 | Reference | 5,557 | 37.13 | 103.65 | 327,588 | 0 | 0 | 228.6 MiB | 5,093, 5,557, 5,702 | 157.07, 103.65, 96.66 | 100.90%/100.99%/100.60% · 8.27%/7.99%/9.17% · 0.33%/0.31%/0.32% |
+
+#### 4 CPUs per gateway (CPU set 0-3)
+
+| scenario | conc | gateway | req/s | p50 ms | p99 ms | checked | non-expected | errors | peak RSS | req/s of each run | p99 ms of each run | CPU % |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| **get_small** | 64 | Rust | 29,456 | 2.07 | 4.33 | 1,775,677 | 0 | 0 | 28.5 MiB | 27,867, 29,456, 31,436 | 4.54, 4.33, 3.52 | 359.77%/380.57%/378.49% · 58.16%/48.29%/66.11% · 45.52%/35.47%/50.25% |
+| **get_small** | 64 | Reference | 5,085 | 11.81 | 20.67 | 304,040 | 0 | 0 | 229.1 MiB | 5,001, 5,107, 5,085 | 21.66, 20.67, 19.51 | 126.53%/126.11%/126.28% · 7.19%/7.35%/7.49% · 14.53%/15.17%/15.04% |
+| **get_small** | 256 | Rust | 31,810 | 7.97 | 11.70 | 1,896,465 | 0 | 0 | 40.1 MiB | 31,146, 31,821, 31,810 | 12.53, 11.70, 11.70 | 381.37%/382.40%/382.39% · 48.96%/47.64%/47.72% · 24.23%/23.58%/24.14% |
+| **get_small** | 256 | Reference | 5,128 | 47.94 | 67.42 | 308,440 | 0 | 0 | 232.1 MiB | 5,099, 5,128, 5,173 | 66.14, 68.23, 67.42 | 131.32%/129.07%/128.00% · 5.22%/5.29%/5.21% · 13.86%/12.08%/12.08% |
+| post_json | 64 | Rust | 26,732 | 2.37 | 3.47 | 1,602,810 | 0 | 0 | 29.6 MiB | 26,752, 26,732, 26,636 | 3.44, 3.47, 3.55 | 377.44%/373.36%/375.65% · 59.20%/58.49%/57.98% · 40.80%/40.88%/40.48% |
+| post_json | 64 | Reference | 4,997 | 12.44 | 20.17 | 298,043 | 0 | 0 | 196.2 MiB | 4,894, 4,997, 5,002 | 21.04, 20.17, 19.52 | 126.89%/125.88%/125.75% · 8.48%/8.39%/8.43% · 14.64%/14.61%/14.86% |
+| post_json | 256 | Rust | 24,673 | 10.29 | 14.24 | 1,482,215 | 0 | 0 | 44.9 MiB | 25,315, 24,673, 24,078 | 14.24, 14.19, 17.69 | 372.08%/373.61%/341.99% · 55.80%/56.19%/51.97% · 28.69%/28.42%/27.63% |
+| post_json | 256 | Reference | 4,767 | 51.72 | 68.50 | 266,591 | 0 | 0 | 209.8 MiB | 4,779, 4,767, 3,753 | 68.45, 68.50, 86.95 | 133.54%/130.59%/129.83% · 8.36%/8.32%/9.95% · 13.88%/13.50%/13.26% |
+| get_large | 64 | Rust | 6,707 | 9.32 | 19.59 | 388,889 | 0 | 0 | 80.9 MiB | 6,707, 5,593, 7,133 | 19.59, 29.00, 16.77 | 381.70%/304.34%/379.94% · 113.07%/87.61%/118.51% · 24.71%/14.87%/28.65% |
+| get_large | 64 | Reference | 765 | 82.29 | 110.91 | 46,008 | 0 | 0 | 299.9 MiB | 749, 765, 778 | 110.91, 110.41, 128.62 | 162.15%/159.71%/142.96% · 13.76%/13.70%/11.40% · 3.78%/4.26%/3.40% |
+| get_large | 256 | Rust | 5,412 | 44.81 | 109.71 | 305,749 | 0 | 0 | 164.5 MiB | 4,027, 5,792, 5,412 | 140.03, 109.71, 96.75 | 336.56%/381.80%/363.67% · 100.22%/114.69%/114.78% · 9.82%/17.31%/14.63% |
+| get_large | 256 | Reference | 750 | 306.70 | 834.99 | 47,197 | 0 | 0 | 340.5 MiB | 750, 715, 858 | 1,603.91, 834.99, 345.04 | 157.24%/155.42%/157.23% · 11.22%/11.72%/12.07% · 2.68%/2.81%/2.64% |
+| reject_401 | 64 | Rust | 34,402 | 1.64 | 4.06 | 2,107,719 | 0 | 0 | 25.7 MiB | 30,885, 40,079, 34,402 | 9.64, 2.81, 4.06 | 355.72%/343.03%/278.54% · 0.00%/0.00%/0.00% · 39.45%/38.55%/35.15% |
+| reject_401 | 64 | Reference | 6,115 | 9.88 | 18.48 | 367,432 | 0 | 0 | 160.9 MiB | 6,115, 6,417, 5,828 | 18.48, 18.36, 20.50 | 101.02%/100.61%/101.55% · 0.01%/0.00%/0.06% · 18.97%/18.27%/20.09% |
+| reject_401 | 256 | Rust | 36,730 | 6.00 | 18.87 | 1,948,304 | 0 | 0 | 38.4 MiB | 36,730, 40,293, 20,289 | 18.87, 17.76, 29.52 | 368.74%/368.79%/224.38% · 0.02%/0.00%/0.00% · 30.73%/30.42%/20.04% |
+| reject_401 | 256 | Reference | 7,026 | 35.34 | 46.74 | 414,066 | 0 | 0 | 168.5 MiB | 7,026, 7,048, 6,601 | 46.74, 45.84, 48.71 | 103.07%/102.12%/101.87% · 0.00%/0.00%/0.01% · 18.04%/17.54%/17.47% |
+| static | 64 | Rust | 51,937 | 1.22 | 2.07 | 3,095,260 | 0 | 0 | 29.2 MiB | 50,861, 51,937, 51,941 | 2.14, 2.07, 2.07 | 378.59%/376.92%/380.38% · 81.31%/80.24%/83.01% · 0.33%/0.34%/0.31% |
+| static | 64 | Reference | 9,060 | 6.31 | 12.35 | 554,111 | 0 | 0 | 194.1 MiB | 9,060, 8,978, 9,655 | 12.35, 12.44, 11.65 | 143.47%/148.42%/145.36% · 10.78%/10.42%/10.39% · 0.33%/0.31%/0.32% |
+| static | 256 | Rust | 51,678 | 4.88 | 7.49 | 3,106,885 | 0 | 0 | 39.8 MiB | 51,678, 51,496, 52,110 | 7.49, 7.59, 7.45 | 373.17%/376.53%/378.88% · 71.15%/72.36%/72.57% · 0.34%/0.33%/0.33% |
+| static | 256 | Reference | 8,893 | 27.50 | 40.29 | 532,546 | 0 | 0 | 234.1 MiB | 8,776, 8,918, 8,893 | 41.34, 40.29, 40.02 | 144.74%/144.91%/146.81% · 10.22%/10.14%/10.29% · 0.29%/0.36%/0.33% |
+
+#### Rust compared with the Reference Gateway (medians)
+
+| CPUs | scenario | conc | req/s Rust ÷ Reference | p99 Reference ÷ Rust | peak RSS Reference ÷ Rust |
+|---|---|---|---|---|---|
+| 1 | **get_small** | 64 | 3.05× | 7.42× | 9.57× |
+| 1 | **get_small** | 256 | 3.48× | 4.75× | 6.80× |
+| 1 | post_json | 64 | 3.10× | 7.57× | 7.96× |
+| 1 | post_json | 256 | 3.35× | 4.39× | 5.40× |
+| 1 | get_large | 64 | 3.81× | 4.01× | 4.60× |
+| 1 | get_large | 256 | 3.95× | 19.57× | 2.30× |
+| 1 | reject_401 | 64 | 2.66× | 2.94× | 8.32× |
+| 1 | reject_401 | 256 | 3.14× | 3.07× | 5.97× |
+| 1 | static | 64 | 3.46× | 9.57× | 9.77× |
+| 1 | static | 256 | 3.59× | 5.22× | 6.63× |
+| 4 | **get_small** | 64 | 5.79× | 4.78× | 8.03× |
+| 4 | **get_small** | 256 | 6.20× | 5.76× | 5.79× |
+| 4 | post_json | 64 | 5.35× | 5.82× | 6.63× |
+| 4 | post_json | 256 | 5.18× | 4.81× | 4.67× |
+| 4 | get_large | 64 | 8.77× | 5.66× | 3.71× |
+| 4 | get_large | 256 | 7.22× | 7.61× | 2.07× |
+| 4 | reject_401 | 64 | 5.63× | 4.55× | 6.25× |
+| 4 | reject_401 | 256 | 5.23× | 2.48× | 4.39× |
+| 4 | static | 64 | 5.73× | 5.97× | 6.65× |
+| 4 | static | 256 | 5.81× | 5.38× | 5.87× |
+
+Scenarios: `get_small`: GET of a Routed Request answered with a 110-byte JSON body, expects 200, upstream receives every request, with `auth-user-id`, Buckets: Global IP, Custom; `post_json`: POST of a Routed Request with a 4 KB JSON body; the Route has one rate limit, expects 201, upstream receives every request, with `auth-user-id`, Buckets: Global IP, Custom, Route; `get_large`: GET of a Routed Request answered with a 1 MiB body (streaming), expects 200, upstream receives every request, with `auth-user-id`, Buckets: Global IP, Custom; `reject_401`: A Routed Request whose token has a bad signature, rejected by the middleware, expects 401, upstream receives nothing, Buckets: Global IP, Anonymous IP; `static`: A Static Request (no Route, middleware or rate limit); its forged auth-user-id must be dropped, expects 200, upstream receives every request, without `auth-user-id`, Buckets: none.
 <!-- END official -->
 
 ## Smoke run (shared machine; not the official results)
