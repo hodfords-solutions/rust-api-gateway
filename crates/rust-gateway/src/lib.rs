@@ -11,6 +11,7 @@
 //! handlers ([`handler`]), build it inside a Tokio runtime, then either serve it with
 //! [`Gateway::serve`] or mount [`Gateway::router`] in an axum application.
 
+pub mod documents;
 pub mod error;
 pub mod gateway;
 pub mod handler;

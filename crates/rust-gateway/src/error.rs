@@ -101,6 +101,11 @@ pub enum GatewayError {
     /// request could not be sent (FWD-22): 503 `application/json` `{"message":"Service unavailable."}`.
     #[error("the upstream is unavailable")]
     UpstreamUnavailable,
+    /// `/document-json` names no service with a loaded document (DOC-14, Deviation D5):
+    /// 404 `{"message":"Not Found","statusCode":404}`, the body of NestJS's
+    /// `NotFoundException`.
+    #[error("no such document")]
+    DocumentNotFound,
 }
 
 impl GatewayError {
@@ -117,6 +122,7 @@ impl GatewayError {
             GatewayError::MalformedPath { .. } => StatusCode::BAD_REQUEST,
             GatewayError::NotFound { .. } => StatusCode::NOT_FOUND,
             GatewayError::Forbidden => StatusCode::FORBIDDEN,
+            GatewayError::DocumentNotFound => StatusCode::NOT_FOUND,
             GatewayError::MethodNotAllowed | GatewayError::UnsupportedMethod { .. } => {
                 StatusCode::METHOD_NOT_ALLOWED
             }
@@ -151,6 +157,9 @@ impl GatewayError {
                 js_json(&Value::String(format!("Cannot {method} {path}")))
             ),
             GatewayError::Forbidden => r#"{"message":"Forbidden","statusCode":403}"#.to_string(),
+            GatewayError::DocumentNotFound => {
+                r#"{"message":"Not Found","statusCode":404}"#.to_string()
+            }
             GatewayError::MethodNotAllowed | GatewayError::UnsupportedMethod { .. } => {
                 r#"{"message":"Method Not Allowed","statusCode":405}"#.to_string()
             }
