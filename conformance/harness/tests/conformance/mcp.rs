@@ -12,7 +12,7 @@ use conformance::mcp::{
     result_text, rpc, tool_names,
 };
 use conformance::mock::{Behaviour, MockUpstream, RecordedRequest, Reply};
-use conformance::runner::{Gateway, Observations, Target, run};
+use conformance::runner::{Gateway, Observations, Target, TargetKind, run, run_reference_only};
 use serde_json::{Value, json};
 
 use crate::common::{error_view, users_gateway};
@@ -64,6 +64,15 @@ async fn two_services(
         ))
         .await?;
     Ok((users, other, gw))
+}
+
+/// Tool names with the services in configuration order (`svc`, then `other`), each service's
+/// tools in their own order. The tools follow the services' first-load order (MCP-06), and
+/// two documents loading at the same time finish in either order, in both targets.
+fn in_service_order(mut names: Vec<String>) -> Vec<String> {
+    let service = |name: &String| name.starts_with("other");
+    names.sort_by_key(service);
+    names
 }
 
 fn ping() -> Value {
@@ -153,7 +162,11 @@ async fn mcp_01_endpoint_routing() {
     .await;
 }
 
-/// MCP-02: Streamable HTTP in stateless mode, compared at the JSON-RPC message level.
+/// MCP-02, the part both targets share: Streamable HTTP in stateless mode, compared at the
+/// JSON-RPC message level, for the exchanges a conforming client makes. Where `rmcp` answers
+/// differently (the table at the end of `docs/parity/08-mcp.md`), only what both agree on
+/// is compared here (the status); the reference's exact answers are checked in
+/// [`mcp_02_transport_reference_only`].
 #[tokio::test]
 async fn mcp_02_transport() {
     run("mcp_02_transport", &["MCP-02"], |target| async move {
@@ -163,12 +176,134 @@ async fn mcp_02_transport() {
         let cases: Vec<(&str, Request)> = vec![
             ("initialize 2025-06-18", post(&initialize("2025-06-18"))),
             ("initialize 2024-11-05", post(&initialize("2024-11-05"))),
-            ("initialize unknown version", post(&initialize("1999-01-01"))),
+            (
+                "initialize unknown version",
+                post(&initialize("1999-01-01")),
+            ),
             ("ping", post(&ping())),
-            ("ping with string id", post(&json!({ "jsonrpc": "2.0", "id": "abc", "method": "ping" }))),
-            ("notification", post(&json!({ "jsonrpc": "2.0", "method": "notifications/initialized" }))),
+            (
+                "ping with string id",
+                post(&json!({ "jsonrpc": "2.0", "id": "abc", "method": "ping" })),
+            ),
+            (
+                "notification",
+                post(&json!({ "jsonrpc": "2.0", "method": "notifications/initialized" })),
+            ),
+            (
+                "unknown method",
+                post(&json!({ "jsonrpc": "2.0", "id": 7, "method": "foo/bar", "params": {} })),
+            ),
+            (
+                "content-type with charset",
+                Request::post("/mcp")
+                    .header("Accept", ACCEPT)
+                    .header("content-type", "application/json; charset=utf-8")
+                    .body(ping().to_string()),
+            ),
+            (
+                "supported mcp-protocol-version header",
+                post(&ping()).header("mcp-protocol-version", "2025-03-26"),
+            ),
+            (
+                "mcp-session-id header",
+                post(&ping()).header("mcp-session-id", "abc"),
+            ),
+        ];
+        for (label, request) in cases {
+            let response = gw.send(&request).await?;
+            let view = exchange_view(&response);
+            eprintln!("{label}: {view}");
+            obs.record(label, view);
+        }
+
+        // Answered by both with the same status, but not the same body.
+        let status_only: Vec<(&str, Request, u16)> = vec![
+            ("no Accept", Request::post("/mcp").json(&ping()), 406),
+            (
+                "Accept application/json only",
+                Request::post("/mcp")
+                    .header("Accept", "application/json")
+                    .json(&ping()),
+                406,
+            ),
+            (
+                "Accept text/event-stream only",
+                Request::post("/mcp")
+                    .header("Accept", "text/event-stream")
+                    .json(&ping()),
+                406,
+            ),
+            (
+                "Accept */*",
+                Request::post("/mcp").header("Accept", "*/*").json(&ping()),
+                406,
+            ),
+            (
+                "content-type text/plain",
+                Request::post("/mcp")
+                    .header("Accept", ACCEPT)
+                    .header("content-type", "text/plain")
+                    .body(ping().to_string()),
+                415,
+            ),
+            (
+                "unsupported mcp-protocol-version header",
+                post(&ping()).header("mcp-protocol-version", "1999-01-01"),
+                400,
+            ),
+        ];
+        for (label, request, status) in status_only {
+            let response = gw.send(&request).await?;
+            assert_eq!(response.status, status, "{label}");
+            obs.record(label, response.status);
+        }
+        let capability = gw.send(&post(&rpc("resources/list", json!({})))).await?;
+        let error = mcp::parse_message(&capability).expect("error message");
+        assert_eq!(error["error"]["code"], -32601);
+        obs.record(
+            "resources/list (no capability)",
+            json!({ "status": capability.status, "code": error["error"]["code"] }),
+        );
+
+        let init = gw.send(&post(&initialize("2025-06-18"))).await?;
+        assert_eq!(init.status, 200);
+        assert_eq!(init.header("content-type"), Some("text/event-stream"));
+        assert_eq!(init.header("mcp-session-id"), None);
+        let unknown = gw.send(&post(&initialize("1999-01-01"))).await?;
+        assert_eq!(
+            mcp::parse_message(&unknown).expect("initialize result")["result"]["protocolVersion"],
+            "2025-11-25"
+        );
+        let notification = gw
+            .send(&post(
+                &json!({ "jsonrpc": "2.0", "method": "notifications/initialized" }),
+            ))
+            .await?;
+        assert_eq!((notification.status, notification.body.len()), (202, 0));
+        let unknown_method = gw.send(&post(&rpc("foo/bar", json!({})))).await?;
+        assert_eq!(unknown_method.status, 200);
+        assert_eq!(
+            mcp::parse_message(&unknown_method).expect("error")["error"],
+            json!({ "code": -32601, "message": "Method not found" })
+        );
+        Ok(obs)
+    })
+    .await;
+}
+
+/// MCP-02, the reference's answers where `rmcp` differs (the table at the end of
+/// `docs/parity/08-mcp.md`): SSE framing, client responses, batches, transport errors as
+/// JSON-RPC bodies, and the error for invalid `tools/call` parameters. A Deviation accepting
+/// `rmcp`'s behaviour here has been proposed but is not approved, so MCP-02 stays `todo`;
+/// this part runs against the reference only until that is decided.
+#[tokio::test]
+async fn mcp_02_transport_reference_only() {
+    run_reference_only("mcp_02_transport_reference_only", &["MCP-02"], |target| async move {
+        let mut obs = Observations::new();
+        let (_mock, gw) = users_gateway(&target, |c| c).await?;
+
+        let cases: Vec<(&str, Request)> = vec![
             ("client response", post(&json!({ "jsonrpc": "2.0", "id": 5, "result": {} }))),
-            ("unknown method", post(&json!({ "jsonrpc": "2.0", "id": 7, "method": "foo/bar", "params": {} }))),
             ("resources/list (no capability)", post(&rpc("resources/list", json!({})))),
             ("malformed JSON", post_raw(r#"{"jsonrpc":"#)),
             ("empty body", post_raw("")),
@@ -197,10 +332,7 @@ async fn mcp_02_transport() {
                 ])),
             ),
             ("empty batch", post_raw("[]")),
-            (
-                "no Accept",
-                Request::post("/mcp").json(&ping()),
-            ),
+            ("no Accept", Request::post("/mcp").json(&ping())),
             (
                 "Accept application/json only",
                 Request::post("/mcp").header("Accept", "application/json").json(&ping()),
@@ -209,10 +341,7 @@ async fn mcp_02_transport() {
                 "Accept text/event-stream only",
                 Request::post("/mcp").header("Accept", "text/event-stream").json(&ping()),
             ),
-            (
-                "Accept */*",
-                Request::post("/mcp").header("Accept", "*/*").json(&ping()),
-            ),
+            ("Accept */*", Request::post("/mcp").header("Accept", "*/*").json(&ping())),
             (
                 "content-type text/plain",
                 Request::post("/mcp")
@@ -221,21 +350,9 @@ async fn mcp_02_transport() {
                     .body(ping().to_string()),
             ),
             (
-                "content-type with charset",
-                Request::post("/mcp")
-                    .header("Accept", ACCEPT)
-                    .header("content-type", "application/json; charset=utf-8")
-                    .body(ping().to_string()),
-            ),
-            (
-                "supported mcp-protocol-version header",
-                post(&ping()).header("mcp-protocol-version", "2025-03-26"),
-            ),
-            (
                 "unsupported mcp-protocol-version header",
                 post(&ping()).header("mcp-protocol-version", "1999-01-01"),
             ),
-            ("mcp-session-id header", post(&ping()).header("mcp-session-id", "abc")),
         ];
         for (label, request) in cases {
             let response = gw.send(&request).await?;
@@ -246,31 +363,13 @@ async fn mcp_02_transport() {
 
         // A few exact expectations, so that a change in the reference's SDK shows up here.
         let init = gw.send(&post(&initialize("2025-06-18"))).await?;
-        assert_eq!(init.status, 200);
-        assert_eq!(init.header("content-type"), Some("text/event-stream"));
-        assert_eq!(init.header("mcp-session-id"), None);
         assert!(init.text().starts_with("event: message\ndata: "), "{}", init.text());
-        let unknown = gw.send(&post(&initialize("1999-01-01"))).await?;
-        assert_eq!(
-            mcp::parse_message(&unknown).expect("initialize result")["result"]["protocolVersion"],
-            "2025-11-25"
-        );
-        let notification = gw
-            .send(&post(&json!({ "jsonrpc": "2.0", "method": "notifications/initialized" })))
-            .await?;
-        assert_eq!((notification.status, notification.body.len()), (202, 0));
         let malformed = gw.send(&post_raw("{")).await?;
         assert_eq!(malformed.status, 400);
         assert_eq!(malformed.header("content-type"), Some("application/json"));
         assert_eq!(
             malformed.text(),
             r#"{"jsonrpc":"2.0","error":{"code":-32700,"message":"Parse error: Invalid JSON"},"id":null}"#
-        );
-        let unknown_method = gw.send(&post(&rpc("foo/bar", json!({})))).await?;
-        assert_eq!(unknown_method.status, 200);
-        assert_eq!(
-            mcp::parse_message(&unknown_method).expect("error")["error"],
-            json!({ "code": -32601, "message": "Method not found" })
         );
         let batch = gw
             .send(&post(&json!([
@@ -286,8 +385,8 @@ async fn mcp_02_transport() {
             r#"{"jsonrpc":"2.0","error":{"code":-32000,"message":"Not Acceptable: Client must accept both application/json and text/event-stream"},"id":null}"#
         );
 
-        // Invalid `tools/call` parameters: the error code is shared, the message is the TypeScript
-        // SDK's schema-validation text and is only printed.
+        // Invalid `tools/call` parameters: the error code; the message is the TypeScript SDK's
+        // schema-validation text and is only printed.
         for (label, params) in [
             ("tools/call without name", json!({})),
             ("tools/call with array arguments", json!({ "name": "svc_UsersController_getMe", "arguments": [1] })),
@@ -489,7 +588,7 @@ async fn mcp_06_tool_filters() {
         ];
         for (label, configure) in configs {
             let (_users, _other, gw) = two_services(&target, configure).await?;
-            let names = tool_names(gw.addr()).await?;
+            let names = in_service_order(tool_names(gw.addr()).await?);
             eprintln!("{label}: {names:?}");
             obs.record(label, &names);
             match label {
@@ -519,7 +618,7 @@ async fn mcp_07_tool_names() {
     run("mcp_07_tool_names", &["MCP-07"], |target| async move {
         let mut obs = Observations::new();
         let (_users, _other, gw) = two_services(&target, |c| c).await?;
-        let names = tool_names(gw.addr()).await?;
+        let names = in_service_order(tool_names(gw.addr()).await?);
         assert!(names.contains(&"svc_GET_v1_paths_anonymous_slug".to_string()));
         obs.record("default names", &names);
         drop(gw);
@@ -527,7 +626,7 @@ async fn mcp_07_tool_names() {
         let template = "{serviceName}.{method}.{operationId}.{path}|{defaultName}";
         let (users, _other, gw) =
             two_services(&target, |c| c.mcp(|m| m.tool_name = Some(template.into()))).await?;
-        let names = tool_names(gw.addr()).await?;
+        let names = in_service_order(tool_names(gw.addr()).await?);
         assert!(
             names.contains(
                 &"svc.get../v1/paths/anonymous/{slug}|svc_GET_v1_paths_anonymous_slug".to_string()
@@ -613,11 +712,22 @@ async fn mcp_13_tools_list() {
             );
             // Deviation D8: the second reference to AddressDto (`workAddress`) is `{}` in the
             // reference and resolved in the port. Everything else is shared.
+            let address = json!({
+                "type": "object",
+                "properties": {
+                    "street": { "type": "string", "description": "Street line" },
+                    "city": { "type": "string" }
+                },
+                "required": ["street", "city"]
+            });
             for tool in &mut tools {
                 if let Some(work) = tool
                     .pointer_mut("/inputSchema/properties/body/properties/workAddress")
                 {
-                    assert_eq!(*work, json!({}));
+                    match target.kind {
+                        TargetKind::Reference => assert_eq!(*work, json!({})),
+                        TargetKind::Rust => assert_eq!(*work, address),
+                    }
                     *work = json!("<D8>");
                 }
             }
@@ -1260,6 +1370,70 @@ async fn mcp_19_tool_results() {
             "Error executing svc_UsersController_listUsers: error.too_many_requests"
         );
         obs.record("global ip bucket full", &ip);
+        Ok(obs)
+    })
+    .await;
+}
+
+/// CFG-13: without the `mcp` option, or with `enabled: false`, there is no MCP endpoint:
+/// `POST /mcp` is an ordinary request for the proxy.
+#[tokio::test]
+async fn cfg_13_mcp_disabled() {
+    run("cfg_13_mcp_disabled", &["CFG-13"], |target| async move {
+        let mut obs = Observations::new();
+        let configs: Vec<(&str, Configure)> = vec![
+            (
+                "no mcp option",
+                Box::new(|mut c: GatewayConfig| {
+                    c.mcp = None;
+                    c
+                }),
+            ),
+            ("enabled false", Box::new(|c| c.mcp(|m| m.enabled = false))),
+        ];
+        for (label, configure) in configs {
+            // No service claims `/mcp`: the proxy's 503.
+            let (mock, gw) = users_gateway(&target, configure).await?;
+            let response = gw.send(&post(&ping())).await?;
+            assert_eq!(response.status, 503, "{label}");
+            assert_eq!(
+                response.text(),
+                r#"{"message":"Service Unavailable","statusCode":503}"#
+            );
+            assert!(mock.requests().is_empty());
+            obs.record(label, error_view(&response));
+            drop(gw);
+
+            // A service owning the Direct Prefix `mcp` receives it (a Static Request, so no
+            // Route is needed).
+            let mock = MockUpstream::start().await?;
+            mock.set_document_json(fixtures::USERS_SERVICE);
+            let configs: Configure = match label {
+                "no mcp option" => Box::new(|mut c: GatewayConfig| {
+                    c.mcp = None;
+                    c
+                }),
+                _ => Box::new(|c| c.mcp(|m| m.enabled = false)),
+            };
+            let gw = target
+                .start(configs(GatewayConfig::new().service_with_direct(
+                    "svc",
+                    &mock,
+                    &["mcp"],
+                )))
+                .await?;
+            let forwarded = gw.send(&post(&ping()).header("x-test-static", "1")).await?;
+            assert_eq!(forwarded.status, 200, "{label}");
+            let request = mock.last_request().expect("POST /mcp forwarded");
+            assert_eq!(
+                (request.method.as_str(), request.target.as_str()),
+                ("POST", "/mcp")
+            );
+            obs.record(
+                format!("{label}: Direct Prefix mcp"),
+                format!("{} {}", request.method, request.target),
+            );
+        }
         Ok(obs)
     })
     .await;
