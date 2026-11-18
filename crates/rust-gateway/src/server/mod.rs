@@ -16,6 +16,8 @@
 //!   REQ-27) sit between the two, as Express middleware sits between Node and Express's
 //!   router: they see Express's errors, and Node completes what they answer.
 //! - Request targets as Node's parser accepts them ([`inbound`]).
+//! - Node's client connection timeouts ([`timeouts`], REQ-28, REQ-29): a slow request head
+//!   or body is answered 408 and closed, an idle keep-alive connection is closed.
 //! - WebSocket upgrades (area 06), when the gateway serves itself
 //!   ([`Gateway::serve`](crate::Gateway::serve)): an upgrade request never reaches hyper or
 //!   the router (WS-01). Its head is held back on the way in; hyper finishes whatever it is
@@ -51,10 +53,13 @@ use tower::ServiceExt as _;
 use crate::error::GatewayError;
 
 mod inbound;
+mod timeouts;
 mod upgrade;
 use crate::gateway::Shared;
 use crate::request::{X_POWERED_BY, malformed_path_segment};
 pub(crate) use inbound::rewrite_target;
+pub use timeouts::ServerTimeouts;
+use timeouts::{Clock, Expiry};
 pub(crate) use upgrade::{Takeover, UpgradeHead};
 
 /// Binds a listener on every address, IPv6 and IPv4 alike, like Node's `listen(port)`:
@@ -109,6 +114,12 @@ async fn serve_with(
     listener: TcpListener,
     shutdown: impl Future<Output = ()> + Send,
 ) -> io::Result<()> {
+    // Node's defaults unless the gateway's options say otherwise; a plain router learns the
+    // application's from its first response (see `node_compat`).
+    let timeouts = gateway
+        .as_ref()
+        .map(|gateway| gateway.options.server_timeouts)
+        .unwrap_or_default();
     let (stop_tx, stop_rx) = watch::channel(false);
     let mut connections = JoinSet::new();
     tokio::pin!(shutdown);
@@ -134,12 +145,14 @@ async fn serve_with(
                 stream,
                 peer,
                 stop_rx.clone(),
+                timeouts,
             )),
             None => connections.spawn(serve_connection(
                 router.clone(),
                 stream,
                 peer,
                 stop_rx.clone(),
+                timeouts,
             )),
         };
         while connections.try_join_next().is_some() {}
@@ -155,8 +168,10 @@ async fn serve_connection(
     stream: TcpStream,
     peer: SocketAddr,
     mut stop: watch::Receiver<bool>,
+    timeouts: ServerTimeouts,
 ) {
     let interim = Interim::default();
+    let clock = Arc::new(Clock::new(timeouts));
     let io = ConnIo {
         inner: stream,
         interim: interim.clone(),
@@ -164,14 +179,16 @@ async fn serve_connection(
         ready: bytes::BytesMut::new(),
         eof: false,
         takeover: None,
+        clock: Arc::clone(&clock),
     };
-    let service = router_service(router, peer, interim);
+    let service = router_service(router, peer, interim, Arc::clone(&clock));
     let connection = hyper::server::conn::http1::Builder::new()
         .auto_date_header(false)
         .serve_connection(TokioIo::new(io), service)
         .with_upgrades();
     tokio::pin!(connection);
     loop {
+        let deadline = clock.deadline();
         tokio::select! {
             result = connection.as_mut() => {
                 if let Err(error) = result {
@@ -179,6 +196,18 @@ async fn serve_connection(
                 }
                 return;
             }
+            () = clock.changed() => {}
+            () = timeouts::sleep_until(deadline) => match clock.expire(tokio::time::Instant::now()) {
+                // Dropping the connection closes it.
+                Some(Expiry::Idle) => return,
+                Some(Expiry::Request { .. }) => {
+                    // A connection waiting for the request answers 408 on its next read
+                    // (`ConnIo`); give hyper that read, then close.
+                    let _ = tokio::time::timeout(Duration::ZERO, connection.as_mut()).await;
+                    return;
+                }
+                None => {}
+            },
             changed = stop.changed() => {
                 connection.as_mut().graceful_shutdown();
                 if changed.is_err() {
@@ -200,6 +229,7 @@ fn router_service(
     router: Router,
     peer: SocketAddr,
     interim: Interim,
+    clock: Arc<Clock>,
 ) -> impl hyper::service::Service<
     Request<Incoming>,
     Response = Response<Body>,
@@ -209,8 +239,18 @@ fn router_service(
     hyper::service::service_fn(move |mut request: Request<Incoming>| -> BoxedResponse {
         request.extensions_mut().insert(ConnectInfo(peer));
         request.extensions_mut().insert(interim.clone());
+        clock.on_headers();
         let router = router.clone();
-        Box::pin(async move { router.oneshot(request.map(Body::new)).await })
+        let clock = Arc::clone(&clock);
+        Box::pin(async move {
+            let request =
+                request.map(|body| Body::new(timeouts::RequestBody::new(body, Arc::clone(&clock))));
+            let response = router.oneshot(request).await?;
+            if let Some(timeouts) = response.extensions().get::<ServerTimeouts>() {
+                clock.set_timeouts(*timeouts);
+            }
+            Ok(response.map(|body| Body::new(timeouts::ResponseBody::new(body, clock))))
+        })
     })
 }
 
@@ -222,8 +262,10 @@ async fn serve_gateway_connection(
     stream: TcpStream,
     peer: SocketAddr,
     mut stop: watch::Receiver<bool>,
+    timeouts: ServerTimeouts,
 ) {
     let interim = Interim::default();
+    let clock = Arc::new(Clock::new(timeouts));
     let takeover = Arc::new(Notify::new());
     let io = ConnIo {
         inner: stream,
@@ -232,16 +274,33 @@ async fn serve_gateway_connection(
         ready: bytes::BytesMut::new(),
         eof: false,
         takeover: Some(Arc::clone(&takeover)),
+        clock: Arc::clone(&clock),
     };
     let mut connection = hyper::server::conn::http1::Builder::new()
         .auto_date_header(false)
-        .serve_connection(TokioIo::new(io), router_service(router, peer, interim));
+        .serve_connection(
+            TokioIo::new(io),
+            router_service(router, peer, interim, Arc::clone(&clock)),
+        );
     let mut stopping = false;
     let result = loop {
+        let deadline = clock.deadline();
         tokio::select! {
             result = std::future::poll_fn(|cx| connection.poll_without_shutdown(cx)) => {
                 break result;
             }
+            () = clock.changed() => {}
+            () = timeouts::sleep_until(deadline) => match clock.expire(tokio::time::Instant::now()) {
+                // Dropping the connection closes it.
+                Some(Expiry::Idle) => return,
+                Some(Expiry::Request { .. }) => {
+                    // See `serve_connection`.
+                    let poll = std::future::poll_fn(|cx| connection.poll_without_shutdown(cx));
+                    let _ = tokio::time::timeout(Duration::ZERO, poll).await;
+                    return;
+                }
+                None => {}
+            },
             () = takeover.notified() => Pin::new(&mut connection).graceful_shutdown(),
             _ = stop.changed(), if !stopping => {
                 // The server is stopping (or gone): finish the current request, take
@@ -306,6 +365,8 @@ struct ConnIo {
     eof: bool,
     /// Signalled when an upgrade head is held back and the connection must be taken over.
     takeover: Option<Arc<Notify>>,
+    /// The connection's timeouts (REQ-28, REQ-29).
+    clock: Arc<Clock>,
 }
 
 impl ConnIo {
@@ -338,6 +399,15 @@ impl AsyncRead for ConnIo {
         buf: &mut ReadBuf<'_>,
     ) -> Poll<io::Result<()>> {
         let this = &mut *self;
+        if let Some(respond) = this.clock.take_expired() {
+            // REQ-28: Node's answer to a request that took too long, then the connection
+            // fails; a write that does not complete at once is given up.
+            if respond {
+                let _ =
+                    Pin::new(&mut this.inner).poll_write(cx, timeouts::REQUEST_TIMEOUT_RESPONSE);
+            }
+            return Poll::Ready(Err(io::ErrorKind::TimedOut.into()));
+        }
         loop {
             if !this.ready.is_empty() {
                 let n = this.ready.len().min(buf.remaining());
@@ -348,6 +418,8 @@ impl AsyncRead for ConnIo {
                 return Poll::Ready(Ok(()));
             }
             if this.inbound.is_holding() {
+                // A complete upgrade head: the connection is handed over and never times out.
+                this.clock.stop();
                 // Nothing more for hyper: the server shuts it down and takes over. No waker
                 // is kept; the server polls the connection again after shutting it down.
                 if let Some(takeover) = &this.takeover {
@@ -362,6 +434,7 @@ impl AsyncRead for ConnIo {
                 this.inbound.finish(&mut this.ready);
                 this.eof = true;
             } else {
+                this.clock.on_read();
                 this.inbound.feed(received.filled(), &mut this.ready);
             }
         }
@@ -374,7 +447,11 @@ impl AsyncWrite for ConnIo {
         cx: &mut Context<'_>,
         buf: &[u8],
     ) -> Poll<io::Result<usize>> {
+        if self.clock.is_closed() {
+            return Poll::Ready(Err(io::ErrorKind::BrokenPipe.into()));
+        }
         std::task::ready!(self.poll_interim(cx))?;
+        self.clock.on_write();
         Pin::new(&mut self.inner).poll_write(cx, buf)
     }
 
@@ -383,7 +460,11 @@ impl AsyncWrite for ConnIo {
         cx: &mut Context<'_>,
         bufs: &[io::IoSlice<'_>],
     ) -> Poll<io::Result<usize>> {
+        if self.clock.is_closed() {
+            return Poll::Ready(Err(io::ErrorKind::BrokenPipe.into()));
+        }
         std::task::ready!(self.poll_interim(cx))?;
+        self.clock.on_write();
         Pin::new(&mut self.inner).poll_write_vectored(cx, bufs)
     }
 
@@ -465,7 +546,12 @@ pub(crate) async fn node_compat(
         interim.push(b"HTTP/1.1 100 Continue\r\n\r\n");
     }
     let response = next.run(request).await;
-    complete(response, &info, shared.x_powered_by)
+    complete(
+        response,
+        &info,
+        shared.x_powered_by,
+        &shared.options.server_timeouts,
+    )
 }
 
 /// Express's router checks, which run before any route (see the [module docs](self)): the
@@ -492,8 +578,15 @@ pub(crate) async fn express_checks(
 }
 
 /// Completes the response headers the way Node writes them.
-fn complete(response: Response<Body>, info: &RequestInfo, x_powered_by: bool) -> Response<Body> {
+fn complete(
+    response: Response<Body>,
+    info: &RequestInfo,
+    x_powered_by: bool,
+    timeouts: &ServerTimeouts,
+) -> Response<Body> {
     let (mut parts, body) = response.into_parts();
+    // For a server that was not given the gateway's timeouts (`serve`).
+    parts.extensions.insert(*timeouts);
     let kind = parts
         .extensions
         .get::<ResponseKind>()
@@ -535,10 +628,13 @@ fn complete(response: Response<Body>, info: &RequestInfo, x_powered_by: bool) ->
     }
     if info.keep_alive {
         headers.append(header::CONNECTION, HeaderValue::from_static("keep-alive"));
-        headers.append(
-            HeaderName::from_static("keep-alive"),
-            HeaderValue::from_static("timeout=5"),
-        );
+        // REQ-29: the configured `keepAliveTimeout`, as Node announces it.
+        if let Some(value) = timeouts
+            .keep_alive_header()
+            .and_then(|v| HeaderValue::from_str(&v).ok())
+        {
+            headers.append(HeaderName::from_static("keep-alive"), value);
+        }
     } else {
         headers.append(header::CONNECTION, HeaderValue::from_static("close"));
     }

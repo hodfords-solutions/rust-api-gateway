@@ -52,6 +52,7 @@ use crate::openapi::{
 use crate::proxy::pool::{Origin, UpstreamPool};
 use crate::rate_limit::{RateLimitOptions, RateLimiter, RateLimiterConfigError, RedisOptions};
 use crate::request::ServiceSelector;
+use crate::server::ServerTimeouts;
 use crate::upstream::UpstreamService;
 
 /// Upstream connection-pool options, applied to every Upstream Service (CFG-10).
@@ -161,6 +162,9 @@ pub struct GatewayOptions {
     /// this is present and [`McpOptions::enabled`](crate::mcp::McpOptions::enabled).
     #[cfg(feature = "mcp")]
     pub mcp: Option<crate::mcp::McpOptions>,
+    /// The client connection timeouts of [`Gateway::serve`] (CFG-20, REQ-28, REQ-29): the
+    /// `http.Server` settings the reference's host application runs with. Node's defaults.
+    pub server_timeouts: ServerTimeouts,
 }
 
 impl GatewayOptions {
@@ -183,6 +187,7 @@ impl GatewayOptions {
             scalar_options: None,
             #[cfg(feature = "mcp")]
             mcp: None,
+            server_timeouts: ServerTimeouts::default(),
         }
     }
 }

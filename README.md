@@ -480,6 +480,7 @@ let gateway = Gateway::builder(options)
 | Express `trust proxy` | `rate_limit::TrustProxy` in `RateLimitOptions::trust_proxy` |
 | A NestJS exception filter | `error::ErrorRenderer`, set with `GatewayBuilder::error_renderer`; `render_with_context` also gets `error::ErrorContext`, with the time until a full Bucket resets for `Retry-After` |
 | Express middleware in the host app (`app.enableCors()`, `app.use(...)`) | A tower layer, set with `GatewayBuilder::layer` (WebSocket upgrades do not pass through it) |
+| Node `http.Server` timeouts in the host app (`headersTimeout`, `requestTimeout`, `keepAliveTimeout`, `keepAliveTimeoutBuffer`) | `server::ServerTimeouts` in `GatewayOptions::server_timeouts`, with Node's defaults |
 | `normalizeIp`, `DEFAULT_IPV6_SUBNET` | `rate_limit::normalize_ip`, `rate_limit::DEFAULT_IPV6_SUBNET` |
 | `ttlToHumanReadable` | `rate_limit::ttl_to_human_readable` |
 | `McpOption` | `mcp::McpOptions` |

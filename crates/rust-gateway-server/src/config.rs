@@ -7,9 +7,11 @@ use api_gateway::mcp::{McpOptions, ServerInfo, ToolNameContext};
 use api_gateway::rate_limit::{
     BucketLimit, RateLimitOptions, RedisOptions, RedisTls, RedisTlsOptions, TrustProxy,
 };
+use api_gateway::server::ServerTimeouts;
 use api_gateway::upstream::UpstreamService;
 use serde::Deserialize;
 use serde_json::{Value, json};
+use std::time::Duration;
 
 /// A configuration error, reported before the server starts.
 pub type ConfigError = Box<dyn std::error::Error + Send + Sync>;
@@ -37,6 +39,46 @@ pub struct ConformanceConfig {
     pub bypass_route_prefixes: Option<Vec<String>>,
     #[serde(default)]
     pub mcp: Option<Mcp>,
+    /// Harness field: the host application's `http.Server` timeouts (REQ-28, REQ-29).
+    #[serde(default)]
+    pub server: Option<ServerConfig>,
+}
+
+/// The `http.Server` timeouts, in milliseconds; absent fields keep Node's defaults.
+/// `connectionsCheckingInterval` only sets how often Node checks the first two; this server
+/// checks them exactly, so the field is ignored.
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ServerConfig {
+    #[serde(default)]
+    pub headers_timeout: Option<f64>,
+    #[serde(default)]
+    pub request_timeout: Option<f64>,
+    #[serde(default)]
+    pub keep_alive_timeout: Option<f64>,
+    #[serde(default)]
+    pub keep_alive_timeout_buffer: Option<f64>,
+}
+
+impl ServerConfig {
+    /// The timeouts, Node's defaults where the file says nothing.
+    pub fn timeouts(&self) -> ServerTimeouts {
+        let mut timeouts = ServerTimeouts::default();
+        for (value, slot) in [
+            (self.headers_timeout, &mut timeouts.headers_timeout),
+            (self.request_timeout, &mut timeouts.request_timeout),
+            (self.keep_alive_timeout, &mut timeouts.keep_alive_timeout),
+            (
+                self.keep_alive_timeout_buffer,
+                &mut timeouts.keep_alive_timeout_buffer,
+            ),
+        ] {
+            if let Some(ms) = value.filter(|ms| ms.is_finite() && *ms >= 0.0) {
+                *slot = Duration::from_secs_f64(ms / 1000.0);
+            }
+        }
+        timeouts
+    }
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -369,6 +411,7 @@ impl ConformanceConfig {
         };
         options.scalar_options = self.scalar_options;
         options.mcp = self.mcp.map(Mcp::into_options);
+        options.server_timeouts = self.server.unwrap_or_default().timeouts();
         Ok(Settings {
             port: port("port", self.port)?,
             options,
@@ -490,10 +533,20 @@ mod tests {
           "redis": { "host": "127.0.0.1", "port": 6399, "db": 7, "username": null, "password": null, "tls": false },
           "pool": { "connections": 100, "pipelining": 1 },
           "bypassRoutePrefixes": ["svc/public"],
-          "mcp": { "enabled": true, "allowedServices": ["svc"], "allowedOperations": [], "serverInfo": { "name": "x", "version": "1" } }
+          "mcp": { "enabled": true, "allowedServices": ["svc"], "allowedOperations": [], "serverInfo": { "name": "x", "version": "1" } },
+          "server": { "headersTimeout": 1000, "requestTimeout": 2000, "keepAliveTimeout": 0, "connectionsCheckingInterval": 100 }
         }"#;
         let config: ConformanceConfig = serde_json::from_str(text).unwrap();
         let settings = config.into_settings().unwrap();
+        assert_eq!(
+            settings.options.server_timeouts,
+            ServerTimeouts {
+                headers_timeout: Duration::from_secs(1),
+                request_timeout: Duration::from_secs(2),
+                keep_alive_timeout: Duration::ZERO,
+                keep_alive_timeout_buffer: Duration::from_secs(1),
+            }
+        );
         assert_eq!(settings.port, 41234);
         assert!(settings.protocol_resolver);
         let options = settings.options;
