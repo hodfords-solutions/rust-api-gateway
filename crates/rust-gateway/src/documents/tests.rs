@@ -517,8 +517,10 @@ fn script_string_literals_are_json_string_literals() {
     }
 }
 
-// DOC-04 (D6): `?type=` is compared with the sources' `slug`, the chosen source is passed
-// with `default: true`, and the fallback is the last loaded service.
+// DOC-04 (D6): `?type=` is compared with the sources' `slug` and only a source it names is
+// passed with `default: true`. Without a match no source is marked, as in the reference,
+// whose `type` fallback (the last service) never reaches Scalar
+// (`deviations::d6_documents_page_embeds_json_unescaped`).
 #[test]
 fn doc_04_d6_type_selects_the_source_by_slug() {
     let html = render_page(&["a".into(), "b".into()], None);
@@ -527,9 +529,15 @@ fn doc_04_d6_type_selects_the_source_by_slug() {
         "    if (!apiDocs.some((doc) => doc.slug === type)){\n        type = \"b\"\n    }\n"
     ));
     assert!(html.contains(
-        "        sources: apiDocs.map((doc) => (doc.slug === type ? { ...doc, default: true } : doc)),\n"
+        "        sources: apiDocs.map((doc) => (doc.slug === urlParams.get('type') ? { ...doc, default: true } : doc)),\n"
     ));
     assert!(!html.contains("doc.name"));
+    // `type` is computed as the reference computes it, and not used for the selection.
+    let script = inline_script(&html);
+    let after = &script[script.find("Scalar.createApiReference").unwrap()..];
+    assert!(!after.contains("=== type"));
+    // The top-level `default: false` of the reference stays.
+    assert!(after.contains("        default: false,\n"));
 }
 
 // DOC-01, DOC-03, DOC-04: apart from the lines D6 changes, the page is the reference

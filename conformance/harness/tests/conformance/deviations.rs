@@ -189,8 +189,14 @@ async fn d6_documents_page_embeds_json_unescaped() {
             assert!(
                 html.contains(r#"[{"title":"svc","slug":"svc","url":"document-json?type=svc"}]"#)
             );
+            // The computed `type` is never given to Scalar: the sources go as they are, none
+            // marked `default`, so Scalar opens its own default source whatever `?type=` says.
+            assert!(html.contains("        sources: apiDocs,\n"));
+            let call = &html[html.find("Scalar.createApiReference").expect("Scalar call")..];
+            assert!(!call.contains("type"), "{call}");
             obs.record("scalarOptions embedded raw", true);
             obs.record("type check compares doc.name", true);
+            obs.record("sources passed unmarked, type unused", true);
             Ok(obs)
         },
     )
