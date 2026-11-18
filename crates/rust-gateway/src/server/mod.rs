@@ -8,9 +8,9 @@
 //! - [`node_compat`]: Express's router checks that run before any route (malformed
 //!   percent-encoding, REQ-26; the asterisk-form target, REQ-01), and the headers Express and
 //!   Node put on every response, in their order (FWD-15, FWD-22, REQ-23): `X-Powered-By`
-//!   first, then the response's own headers, `Content-Length` for a body of known length that
-//!   is not streamed, `Date`, `Connection` and `Keep-Alive`, and `Transfer-Encoding: chunked`
-//!   when there is no length.
+//!   first when it is turned on (off by default, Deviation D11), then the response's own
+//!   headers, `Content-Length` for a body of known length that is not streamed, `Date`,
+//!   `Connection` and `Keep-Alive`, and `Transfer-Encoding: chunked` when there is no length.
 //! - Request targets as Node's parser accepts them ([`inbound`]).
 //! - WebSocket upgrades (area 06), when the gateway serves itself
 //!   ([`Gateway::serve`](crate::Gateway::serve)): an upgrade request never reaches hyper or

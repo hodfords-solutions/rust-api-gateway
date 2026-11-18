@@ -5,8 +5,10 @@
 //! rendering with an [`ErrorRenderer`] (REQ-25), the counterpart of a NestJS exception
 //! filter in the reference's host application.
 //!
-//! The server adds what Express adds to these responses: `X-Powered-By: Express` and a weak
-//! `ETag` (seen in the Conformance Tests, not asserted).
+//! The server adds what Express adds to these responses: a weak `ETag` (seen in the
+//! Conformance Tests, not asserted), and `X-Powered-By: Express` only when
+//! [`GatewayBuilder::x_powered_by`](crate::GatewayBuilder::x_powered_by) turns it on
+//! (Deviation D11).
 
 use std::error::Error as StdError;
 use std::fmt::Write as _;

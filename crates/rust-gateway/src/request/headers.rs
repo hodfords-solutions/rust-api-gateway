@@ -29,7 +29,9 @@ pub const HOP_BY_HOP_HEADERS: [&str; 8] = [
     "upgrade",
 ];
 
-/// The `X-Powered-By` value Express puts first on every response.
+/// The `X-Powered-By` value Express puts first on every response. The gateway sends it only
+/// when [`GatewayBuilder::x_powered_by`](crate::GatewayBuilder::x_powered_by) turns it on
+/// (Deviation D11).
 pub const X_POWERED_BY: &str = "Express";
 
 /// Headers whose repeated lines Node discards after the first.
@@ -340,7 +342,10 @@ pub fn upstream_framing(
 /// undici lower-cases names and groups repeated lines at the first one's position; the
 /// [`HOP_BY_HOP_HEADERS`] are removed; Express's `x-powered-by: Express` comes first unless
 /// the upstream sent its own `x-powered-by`, which then takes that place; `set-cookie` lines
-/// come last, each kept separate.
+/// come last, each kept separate. This is the reference's list: the proxy leaves the added
+/// `x-powered-by: Express` out unless
+/// [`GatewayBuilder::x_powered_by`](crate::GatewayBuilder::x_powered_by) turns it on
+/// (Deviation D11).
 ///
 /// The server adds what Node adds after these: `Date` when the upstream sent none,
 /// `Connection: keep-alive` and `Keep-Alive: timeout=5` (or `Connection: close` when the

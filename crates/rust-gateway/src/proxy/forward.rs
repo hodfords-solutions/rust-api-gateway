@@ -152,7 +152,8 @@ pub(crate) async fn forward(
     })?;
     let (mut parts, upstream) = response.into_parts();
 
-    // FWD-15: the upstream's headers in undici's grouping, X-Powered-By first.
+    // FWD-15: the upstream's headers in undici's grouping, X-Powered-By first; Express's own
+    // value only when it is turned on (Deviation D11).
     let upstream_powered = parts.headers.contains_key("x-powered-by");
     let mut out = HeaderMap::with_capacity(parts.headers.len() + 1);
     for (name, value) in response_headers(parts.headers.iter()) {

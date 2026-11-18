@@ -1,6 +1,7 @@
 //! Rust-only tests of the served gateway: startup and readiness (CFG-16), application routes
 //! (CFG-18), handler order (CFG-19), values attached by middleware (REQ-20), the D4
-//! deviations (REQ-08, REQ-15) and replaceable error rendering (REQ-25).
+//! deviations (REQ-08, REQ-15), Deviation D11 (`X-Powered-By`, FWD-15, REQ-23) and replaceable
+//! error rendering (REQ-25).
 
 mod gateway_common;
 
@@ -102,11 +103,6 @@ async fn cfg_18_application_routes_take_precedence() {
         .await
         .unwrap();
     assert_eq!(response.status(), 200);
-    assert_eq!(
-        response.headers()["x-powered-by"],
-        "Express",
-        "application routes get Express's headers too"
-    );
     assert_eq!(response.text().await.unwrap(), "from the application");
     assert!(upstream.seen().is_empty());
 
@@ -306,21 +302,82 @@ async fn req_25_error_rendering_can_be_replaced() {
     assert_eq!(response.text().await.unwrap(), "custom 503");
 }
 
-/// The single switch for `X-Powered-By: Express`.
+/// Deviation D11 (FWD-15, REQ-23): by default no response carries `X-Powered-By` (the
+/// reference sends `X-Powered-By: Express` on every one); an upstream's own `x-powered-by` is
+/// forwarded like any other header. `x_powered_by(true)` restores Express's header first in
+/// every kind of response: forwarded, the gateway's own errors, application routes, the
+/// document endpoints and a rejected WebSocket upgrade (D1); an upstream's own value then
+/// takes its place.
 #[tokio::test]
-async fn x_powered_by_can_be_switched_off() {
+async fn d11_x_powered_by_is_off_by_default_and_can_be_turned_on() {
     let upstream = Upstream::start().await;
-    let served = serve(
-        Gateway::builder(options(vec![upstream.service("svc")])).x_powered_by(false),
-        true,
-    )
-    .await;
-    for path in ["/svc/v1/users", "/svc/nothing-here"] {
-        let response = client().get(served.url(path)).send().await.unwrap();
-        assert!(
-            !response.headers().contains_key("x-powered-by"),
-            "{path}: {:?}",
-            response.headers()
-        );
+    let requests = [
+        ("forwarded", "GET /svc/v1/users HTTP/1.1", "HTTP/1.1 200 OK"),
+        (
+            "gateway error (no Upstream Service)",
+            "GET /nowhere HTTP/1.1",
+            "HTTP/1.1 503 Service Unavailable",
+        ),
+        (
+            "gateway error (method)",
+            "PATCH /svc/v1/users HTTP/1.1",
+            "HTTP/1.1 405 Method Not Allowed",
+        ),
+        ("application route", "GET /app HTTP/1.1", "HTTP/1.1 200 OK"),
+        (
+            "document endpoint",
+            "GET /documents HTTP/1.1",
+            "HTTP/1.1 200 OK",
+        ),
+        (
+            "rejected WebSocket upgrade",
+            "GET /nowhere/socket HTTP/1.1\r\nConnection: Upgrade\r\nUpgrade: websocket\r\n\
+             Sec-WebSocket-Version: 13\r\nSec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==",
+            "HTTP/1.1 503 Service Unavailable",
+        ),
+    ];
+    for enabled in [None, Some(false), Some(true)] {
+        let mut gateway_options = options(vec![upstream.service("svc")]);
+        gateway_options.documents.enabled = true;
+        let mut builder = Gateway::builder(gateway_options)
+            .routes(Router::new().route("/app", get(|| async { "app" })));
+        if let Some(enabled) = enabled {
+            builder = builder.x_powered_by(enabled);
+        }
+        let served = serve(builder, true).await;
+        let on = enabled == Some(true);
+        for (label, line, status) in requests {
+            let (got, headers) = gateway_common::raw_exchange(
+                served.addr,
+                &format!("{line}\r\nHost: gw\r\nConnection: close\r\n\r\n"),
+            )
+            .await;
+            assert_eq!(got, status, "{label} ({enabled:?})");
+            let powered: Vec<&str> = headers
+                .iter()
+                .filter(|(n, _)| n == "x-powered-by")
+                .map(|(_, v)| v.as_str())
+                .collect();
+            if on {
+                assert_eq!(powered, ["Express"], "{label}: {headers:?}");
+                assert_eq!(headers[0].0, "x-powered-by", "{label}: first");
+            } else {
+                assert!(powered.is_empty(), "{label} ({enabled:?}): {headers:?}");
+            }
+        }
+
+        // The upstream's own `x-powered-by` is forwarded in either setting, first, alone.
+        let (status, headers) = gateway_common::raw_exchange(
+            served.addr,
+            "GET /svc/v1/users?powered=Mock HTTP/1.1\r\nHost: gw\r\nConnection: close\r\n\r\n",
+        )
+        .await;
+        assert_eq!(status, "HTTP/1.1 200 OK");
+        let powered: Vec<&(String, String)> = headers
+            .iter()
+            .filter(|(n, _)| n == "x-powered-by")
+            .collect();
+        assert_eq!(powered, [&("x-powered-by".to_string(), "Mock".to_string())]);
+        assert_eq!(headers[0].0, "x-powered-by", "{headers:?}");
     }
 }

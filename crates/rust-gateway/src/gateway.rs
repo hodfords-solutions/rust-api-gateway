@@ -273,7 +273,7 @@ impl GatewayBuilder {
             renderer: Arc::new(DefaultErrorRenderer),
             routes: Router::new(),
             fetcher: None,
-            x_powered_by: true,
+            x_powered_by: false,
             upstream_tls: None,
         }
     }
@@ -370,8 +370,11 @@ impl GatewayBuilder {
         self
     }
 
-    /// Whether responses carry `X-Powered-By: Express` as the reference's do (default
-    /// true). The only switch for that header.
+    /// Whether responses carry `X-Powered-By: Express` (default false, Deviation D11). The
+    /// reference sends it on every response, an Express default; `true` restores it exactly
+    /// where Express puts it: first among the headers, unless a forwarded response has its
+    /// own `x-powered-by`, which is kept instead (FWD-15, REQ-23). The only switch for that
+    /// header.
     pub fn x_powered_by(mut self, enabled: bool) -> Self {
         self.x_powered_by = enabled;
         self
@@ -586,7 +589,8 @@ impl Gateway {
     /// ASCII case and one trailing slash), then the proxy for everything else (REQ-01),
     /// wrapped in the HTTP
     /// behaviours the reference gets from Express and Node (REQ-26, the asterisk-form
-    /// target, `X-Powered-By`, `Date`, `Connection` and `Keep-Alive` on every response).
+    /// target, `Date`, `Connection` and `Keep-Alive` on every response, and `X-Powered-By`
+    /// when [`GatewayBuilder::x_powered_by`] turns it on).
     ///
     /// [`serve`](Self::serve) serves it with the client address and `Expect: 100-continue`
     /// handled as Node does; an application serving it another way must provide

@@ -11,7 +11,7 @@ use conformance::mock::{Behaviour, MockUpstream, Reply};
 use conformance::runner::{Observations, run};
 use serde_json::json;
 
-use crate::common::{assert_table, error_view, users_gateway};
+use crate::common::{assert_table, error_view, users_gateway, without_x_powered_by};
 use crate::pipeline::{describe, header_lines, mask_port, outcome};
 
 /// Adds one row per header line, so long header lists stay readable.
@@ -1001,7 +1001,8 @@ async fn fwd_14_status_codes() {
 }
 
 /// FWD-15: upstream response headers are returned unchanged except the hop-by-hop list;
-/// repeated headers stay separate.
+/// repeated headers stay separate. Express's own `x-powered-by` is the reference's alone
+/// (Deviation D11).
 #[tokio::test]
 async fn fwd_15_response_headers() {
     run(
@@ -1057,7 +1058,15 @@ async fn fwd_15_response_headers() {
                 "/svc/v1/users/chunked",
             ] {
                 let response = gw.get(path).await?;
-                push_lines(&mut observed, path, response_lines(&response));
+                let lines = response_lines(&response);
+                // The upstream's own `x-powered-by` is forwarded by both; Express's is the
+                // reference's alone (D11).
+                let lines = if path.ends_with("/powered") {
+                    lines
+                } else {
+                    without_x_powered_by(target.kind, path, lines)
+                };
+                push_lines(&mut observed, path, lines);
                 observed.push((format!("{path} body"), response.text()));
             }
             // A client asking to close gets `Connection: close`.
@@ -1073,7 +1082,6 @@ async fn fwd_15_response_headers() {
                 "FWD-15",
                 &observed,
                 &[
-                    ("/svc/v1/users/headers", "x-powered-by: Express"),
                     ("/svc/v1/users/headers", "x-one: 1"),
                     ("/svc/v1/users/headers", "x-dup: 1"),
                     ("/svc/v1/users/headers", "x-dup: 2"),
@@ -1097,7 +1105,6 @@ async fn fwd_15_response_headers() {
                     ("/svc/v1/users/powered", "connection: keep-alive"),
                     ("/svc/v1/users/powered", "keep-alive: timeout=5"),
                     ("/svc/v1/users/powered body", "x"),
-                    ("/svc/v1/users/chunked", "x-powered-by: Express"),
                     ("/svc/v1/users/chunked", "content-type: text/plain"),
                     ("/svc/v1/users/chunked", "date: <date>"),
                     ("/svc/v1/users/chunked", "connection: keep-alive"),
@@ -1359,7 +1366,7 @@ async fn fwd_22_upstream_unavailable() {
             obs.record("refused, full view", error_view(&refused));
             obs.record(
                 "refused, headers",
-                response_lines(&refused)
+                without_x_powered_by(target.kind, "connection refused", response_lines(&refused))
                     .into_iter()
                     .filter(|l| !l.to_ascii_lowercase().starts_with("date:"))
                     .collect::<Vec<_>>(),

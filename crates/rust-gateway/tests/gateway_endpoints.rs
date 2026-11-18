@@ -143,7 +143,7 @@ async fn d6_documents_page_escapes_and_selects_by_slug() {
     assert_eq!(response.status(), 200);
     let headers = response.headers().clone();
     assert_eq!(headers["content-type"], "text/html; charset=utf-8");
-    assert_eq!(headers["x-powered-by"], "Express");
+    assert!(!headers.contains_key("x-powered-by"), "off by default (D11)");
     assert!(headers["etag"].to_str().unwrap().starts_with("W/\""));
     let length: usize = headers["content-length"].to_str().unwrap().parse().unwrap();
     let html = response.text().await.unwrap();

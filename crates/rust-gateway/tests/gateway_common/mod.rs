@@ -187,7 +187,37 @@ async fn answer(
     if let Some(ms) = delay {
         tokio::time::sleep(Duration::from_millis(ms)).await;
     }
-    Response::new(Full::new(Bytes::from(format!("upstream {target}"))))
+    let mut response = Response::new(Full::new(Bytes::from(format!("upstream {target}"))));
+    // `powered=<value>` makes the upstream send its own `x-powered-by` (FWD-15).
+    if let Some(value) = target
+        .split("powered=")
+        .nth(1)
+        .and_then(|v| v.split('&').next())
+        .and_then(|v| http::HeaderValue::from_str(v).ok())
+    {
+        response.headers_mut().insert("x-powered-by", value);
+    }
+    response
+}
+
+/// Sends `head` (a complete request head) on a new connection that the gateway closes after
+/// answering, and returns the status line and the header lines in wire order, names
+/// lower-cased.
+pub async fn raw_exchange(addr: SocketAddr, head: &str) -> (String, Vec<(String, String)>) {
+    use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _};
+    let mut stream = tokio::net::TcpStream::connect(addr).await.expect("connect");
+    stream.write_all(head.as_bytes()).await.expect("send");
+    let mut answer = Vec::new();
+    let _ = tokio::time::timeout(Duration::from_secs(5), stream.read_to_end(&mut answer)).await;
+    let text = String::from_utf8_lossy(&answer).into_owned();
+    let head = text.split("\r\n\r\n").next().unwrap_or_default();
+    let mut lines = head.split("\r\n");
+    let status = lines.next().unwrap_or_default().to_string();
+    let headers = lines
+        .filter_map(|line| line.split_once(':'))
+        .map(|(n, v)| (n.to_ascii_lowercase(), v.trim().to_string()))
+        .collect();
+    (status, headers)
 }
 
 /// Gateway options for one service, with rate limiting off (no Redis needed).
