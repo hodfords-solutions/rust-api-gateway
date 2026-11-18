@@ -1,0 +1,5864 @@
+{
+ "versions": {
+  "node": "v24.20.0",
+  "@hodfords/nestjs-api-gateway": "12.4.2"
+ },
+ "cases": [
+  {
+   "name": "users fixture",
+   "services": {
+    "svc": {
+     "openapi": "3.0.0",
+     "paths": {
+      "/v1/users": {
+       "get": {
+        "description": "Returns every user.",
+        "operationId": "UsersController_listUsers",
+        "parameters": [
+         {
+          "name": "page",
+          "required": false,
+          "in": "query",
+          "schema": {
+           "type": "number"
+          }
+         },
+         {
+          "name": "sort",
+          "required": false,
+          "in": "query",
+          "schema": {
+           "enum": [
+            "asc",
+            "desc"
+           ],
+           "type": "string"
+          }
+         }
+        ],
+        "responses": {
+         "200": {
+          "description": ""
+         }
+        },
+        "summary": "List users",
+        "tags": [
+         "users"
+        ],
+        "x-api-mcp": [
+         {
+          "description": "List users"
+         }
+        ]
+       },
+       "post": {
+        "operationId": "UsersController_createUser",
+        "parameters": [],
+        "requestBody": {
+         "required": true,
+         "description": "The new user",
+         "content": {
+          "application/json": {
+           "schema": {
+            "$ref": "#/components/schemas/CreateUserDto"
+           }
+          }
+         }
+        },
+        "responses": {
+         "201": {
+          "description": ""
+         }
+        },
+        "summary": "Create a user",
+        "tags": [
+         "users"
+        ],
+        "x-rate-limits": [
+         {
+          "limit": 1,
+          "ttl": 60,
+          "status": 201
+         }
+        ]
+       }
+      },
+      "/v1/users/{id}": {
+       "get": {
+        "operationId": "UsersController_getUser",
+        "parameters": [
+         {
+          "name": "id",
+          "required": true,
+          "in": "path",
+          "schema": {
+           "type": "string"
+          }
+         },
+         {
+          "name": "x-request-id",
+          "in": "header",
+          "required": false,
+          "schema": {
+           "type": "string"
+          }
+         },
+         {
+          "name": "Permission-In-Any-Guard",
+          "in": "header",
+          "required": false,
+          "schema": {
+           "type": "string"
+          }
+         },
+         {
+          "name": "auth-user-id",
+          "in": "header",
+          "required": false,
+          "schema": {
+           "type": "string"
+          }
+         }
+        ],
+        "responses": {
+         "200": {
+          "description": ""
+         }
+        },
+        "security": [
+         {
+          "auth-user-id": []
+         }
+        ],
+        "summary": "Get a user",
+        "tags": [
+         "users"
+        ]
+       },
+       "put": {
+        "operationId": "UsersController_replaceUser",
+        "parameters": [
+         {
+          "name": "id",
+          "required": true,
+          "in": "path",
+          "schema": {
+           "type": "string"
+          }
+         }
+        ],
+        "requestBody": {
+         "required": true,
+         "content": {
+          "application/json": {
+           "schema": {
+            "$ref": "#/components/schemas/CreateUserDto"
+           }
+          }
+         }
+        },
+        "responses": {
+         "200": {
+          "description": ""
+         }
+        },
+        "security": [
+         {
+          "x-api-key": []
+         }
+        ],
+        "tags": [
+         "users"
+        ]
+       },
+       "patch": {
+        "operationId": "UsersController_updateUser",
+        "parameters": [
+         {
+          "name": "id",
+          "required": true,
+          "in": "path",
+          "schema": {
+           "type": "string"
+          }
+         }
+        ],
+        "responses": {
+         "200": {
+          "description": ""
+         }
+        },
+        "security": [
+         {
+          "x-api-key": []
+         },
+         {
+          "auth-user-id": []
+         }
+        ],
+        "tags": [
+         "users"
+        ]
+       },
+       "delete": {
+        "operationId": "UsersController_deleteUser",
+        "parameters": [
+         {
+          "name": "id",
+          "required": true,
+          "in": "path",
+          "schema": {
+           "type": "string"
+          }
+         }
+        ],
+        "responses": {
+         "200": {
+          "description": ""
+         }
+        },
+        "tags": [
+         "users"
+        ]
+       },
+       "head": {
+        "operationId": "UsersController_headUser",
+        "parameters": [
+         {
+          "name": "id",
+          "required": true,
+          "in": "path",
+          "schema": {
+           "type": "string"
+          }
+         }
+        ],
+        "responses": {
+         "200": {
+          "description": ""
+         }
+        },
+        "tags": [
+         "users"
+        ]
+       }
+      },
+      "/v1/users/me": {
+       "get": {
+        "operationId": "UsersController_getMe",
+        "parameters": [],
+        "responses": {
+         "200": {
+          "description": ""
+         }
+        },
+        "security": [
+         {
+          "bearer": []
+         }
+        ],
+        "summary": "The current user",
+        "tags": [
+         "users"
+        ]
+       }
+      },
+      "/v1/limits/plain": {
+       "get": {
+        "operationId": "LimitsController_plain",
+        "parameters": [],
+        "responses": {
+         "200": {
+          "description": ""
+         }
+        },
+        "tags": [
+         "limits"
+        ],
+        "x-rate-limits": [
+         {
+          "limit": 2,
+          "ttl": 60
+         }
+        ]
+       }
+      },
+      "/v1/limits/on-status": {
+       "post": {
+        "operationId": "LimitsController_onStatus",
+        "parameters": [],
+        "responses": {
+         "201": {
+          "description": ""
+         }
+        },
+        "tags": [
+         "limits"
+        ],
+        "x-rate-limits": [
+         {
+          "limit": 1,
+          "ttl": 60,
+          "status": 201
+         }
+        ]
+       }
+      },
+      "/v1/limits/stacked": {
+       "get": {
+        "operationId": "LimitsController_stacked",
+        "parameters": [],
+        "responses": {
+         "200": {
+          "description": ""
+         }
+        },
+        "tags": [
+         "limits"
+        ],
+        "x-rate-limits": [
+         {
+          "limit": 5,
+          "ttl": 7200
+         },
+         {
+          "limit": 3,
+          "ttl": 60
+         }
+        ]
+       }
+      },
+      "/v1/limits/stacked-status": {
+       "get": {
+        "operationId": "LimitsController_stackedStatus",
+        "parameters": [],
+        "responses": {
+         "200": {
+          "description": ""
+         }
+        },
+        "tags": [
+         "limits"
+        ],
+        "x-rate-limits": [
+         {
+          "limit": 1,
+          "ttl": 3600,
+          "status": 404
+         },
+         {
+          "limit": 2,
+          "ttl": 60
+         }
+        ]
+       }
+      },
+      "/v1/paths/files/{path}": {
+       "get": {
+        "operationId": "PathsController_files",
+        "parameters": [
+         {
+          "name": "path",
+          "required": true,
+          "in": "path",
+          "schema": {
+           "type": "string"
+          }
+         }
+        ],
+        "responses": {
+         "200": {
+          "description": ""
+         }
+        },
+        "tags": [
+         "paths"
+        ],
+        "x-router-path": "/v1/paths/files/*path"
+       }
+      },
+      "/v1/paths/optional": {
+       "get": {
+        "operationId": "PathsController_optional",
+        "parameters": [],
+        "responses": {
+         "200": {
+          "description": ""
+         }
+        },
+        "tags": [
+         "paths"
+        ],
+        "x-router-path": "/v1/paths/optional{/:id}"
+       }
+      },
+      "/v1/paths/escaped": {
+       "get": {
+        "operationId": "PathsController_escaped",
+        "parameters": [],
+        "responses": {
+         "200": {
+          "description": ""
+         }
+        },
+        "tags": [
+         "paths"
+        ],
+        "x-router-path": "/v1/paths/escaped\\:literal"
+       }
+      },
+      "/v1/paths/anonymous/{slug}": {
+       "get": {
+        "parameters": [
+         {
+          "name": "slug",
+          "required": true,
+          "in": "path",
+          "schema": {
+           "type": "string"
+          }
+         }
+        ],
+        "responses": {
+         "200": {
+          "description": ""
+         }
+        },
+        "tags": [
+         "paths"
+        ]
+       }
+      },
+      "/v1/paths/trees": {
+       "post": {
+        "operationId": "PathsController_createTree",
+        "parameters": [],
+        "requestBody": {
+         "required": true,
+         "content": {
+          "application/json": {
+           "schema": {
+            "$ref": "#/components/schemas/TreeNodeDto"
+           }
+          }
+         }
+        },
+        "responses": {
+         "201": {
+          "description": ""
+         }
+        },
+        "tags": [
+         "paths"
+        ]
+       }
+      }
+     },
+     "info": {
+      "title": "users-service",
+      "description": "Conformance fixture users-service",
+      "version": "1.0",
+      "contact": {}
+     },
+     "tags": [],
+     "servers": [],
+     "components": {
+      "securitySchemes": {
+       "bearer": {
+        "scheme": "bearer",
+        "bearerFormat": "JWT",
+        "type": "http"
+       },
+       "auth-user-id": {
+        "type": "apiKey",
+        "in": "header",
+        "name": "auth-user-id"
+       },
+       "x-api-key": {
+        "type": "apiKey",
+        "in": "header",
+        "name": "x-api-key"
+       }
+      },
+      "schemas": {
+       "AddressDto": {
+        "type": "object",
+        "properties": {
+         "street": {
+          "type": "string",
+          "description": "Street line"
+         },
+         "city": {
+          "type": "string"
+         }
+        },
+        "required": [
+         "street",
+         "city"
+        ]
+       },
+       "CreateUserDto": {
+        "type": "object",
+        "properties": {
+         "name": {
+          "type": "string",
+          "description": "Display name"
+         },
+         "homeAddress": {
+          "$ref": "#/components/schemas/AddressDto"
+         },
+         "workAddress": {
+          "$ref": "#/components/schemas/AddressDto"
+         },
+         "tags": {
+          "type": "array",
+          "items": {
+           "type": "string"
+          }
+         }
+        },
+        "required": [
+         "name",
+         "homeAddress",
+         "workAddress"
+        ]
+       },
+       "TreeNodeDto": {
+        "type": "object",
+        "properties": {
+         "label": {
+          "type": "string"
+         },
+         "children": {
+          "type": "array",
+          "items": {
+           "$ref": "#/components/schemas/TreeNodeDto"
+          }
+         }
+        },
+        "required": [
+         "label",
+         "children"
+        ]
+       }
+      }
+     }
+    }
+   },
+   "reference": {
+    "tools": [
+     {
+      "name": "svc_UsersController_listUsers",
+      "description": "Returns every user.",
+      "serviceName": "svc",
+      "httpMethod": "GET",
+      "path": "/v1/users",
+      "inputSchema": {
+       "type": "object",
+       "properties": {
+        "query_page": {
+         "type": "number",
+         "description": "query parameter: page"
+        },
+        "query_sort": {
+         "type": "string",
+         "description": "query parameter: sort",
+         "enum": [
+          "asc",
+          "desc"
+         ]
+        }
+       }
+      }
+     },
+     {
+      "name": "svc_UsersController_getUser",
+      "description": "GET /v1/users/{id}",
+      "serviceName": "svc",
+      "httpMethod": "GET",
+      "path": "/v1/users/{id}",
+      "inputSchema": {
+       "type": "object",
+       "properties": {
+        "path_id": {
+         "type": "string",
+         "description": "path parameter: id"
+        },
+        "header_x-request-id": {
+         "type": "string",
+         "description": "header parameter: x-request-id"
+        },
+        "header_Permission-In-Any-Guard": {
+         "type": "string",
+         "description": "header parameter: Permission-In-Any-Guard"
+        },
+        "header_auth-user-id": {
+         "type": "string",
+         "description": "header parameter: auth-user-id"
+        }
+       },
+       "required": [
+        "path_id"
+       ]
+      }
+     },
+     {
+      "name": "svc_UsersController_getMe",
+      "description": "GET /v1/users/me",
+      "serviceName": "svc",
+      "httpMethod": "GET",
+      "path": "/v1/users/me",
+      "inputSchema": {
+       "type": "object",
+       "properties": {}
+      }
+     },
+     {
+      "name": "svc_LimitsController_plain",
+      "description": "GET /v1/limits/plain",
+      "serviceName": "svc",
+      "httpMethod": "GET",
+      "path": "/v1/limits/plain",
+      "inputSchema": {
+       "type": "object",
+       "properties": {}
+      }
+     },
+     {
+      "name": "svc_LimitsController_stacked",
+      "description": "GET /v1/limits/stacked",
+      "serviceName": "svc",
+      "httpMethod": "GET",
+      "path": "/v1/limits/stacked",
+      "inputSchema": {
+       "type": "object",
+       "properties": {}
+      }
+     },
+     {
+      "name": "svc_LimitsController_stackedStatus",
+      "description": "GET /v1/limits/stacked-status",
+      "serviceName": "svc",
+      "httpMethod": "GET",
+      "path": "/v1/limits/stacked-status",
+      "inputSchema": {
+       "type": "object",
+       "properties": {}
+      }
+     },
+     {
+      "name": "svc_PathsController_files",
+      "description": "GET /v1/paths/files/{path}",
+      "serviceName": "svc",
+      "httpMethod": "GET",
+      "path": "/v1/paths/files/{path}",
+      "inputSchema": {
+       "type": "object",
+       "properties": {
+        "path_path": {
+         "type": "string",
+         "description": "path parameter: path"
+        }
+       },
+       "required": [
+        "path_path"
+       ]
+      }
+     },
+     {
+      "name": "svc_PathsController_optional",
+      "description": "GET /v1/paths/optional",
+      "serviceName": "svc",
+      "httpMethod": "GET",
+      "path": "/v1/paths/optional",
+      "inputSchema": {
+       "type": "object",
+       "properties": {}
+      }
+     },
+     {
+      "name": "svc_PathsController_escaped",
+      "description": "GET /v1/paths/escaped",
+      "serviceName": "svc",
+      "httpMethod": "GET",
+      "path": "/v1/paths/escaped",
+      "inputSchema": {
+       "type": "object",
+       "properties": {}
+      }
+     },
+     {
+      "name": "svc_GET_v1_paths_anonymous_slug",
+      "description": "GET /v1/paths/anonymous/{slug}",
+      "serviceName": "svc",
+      "httpMethod": "GET",
+      "path": "/v1/paths/anonymous/{slug}",
+      "inputSchema": {
+       "type": "object",
+       "properties": {
+        "path_slug": {
+         "type": "string",
+         "description": "path parameter: slug"
+        }
+       },
+       "required": [
+        "path_slug"
+       ]
+      }
+     },
+     {
+      "name": "svc_UsersController_createUser",
+      "description": "POST /v1/users",
+      "serviceName": "svc",
+      "httpMethod": "POST",
+      "path": "/v1/users",
+      "inputSchema": {
+       "type": "object",
+       "properties": {
+        "body": {
+         "type": "object",
+         "description": "The new user",
+         "properties": {
+          "name": {
+           "type": "string",
+           "description": "Display name"
+          },
+          "homeAddress": {
+           "type": "object",
+           "properties": {
+            "street": {
+             "type": "string",
+             "description": "Street line"
+            },
+            "city": {
+             "type": "string"
+            }
+           },
+           "required": [
+            "street",
+            "city"
+           ]
+          },
+          "workAddress": {},
+          "tags": {
+           "type": "array",
+           "items": {
+            "type": "string"
+           }
+          }
+         },
+         "required": [
+          "name",
+          "homeAddress",
+          "workAddress"
+         ]
+        }
+       },
+       "required": [
+        "body"
+       ]
+      }
+     },
+     {
+      "name": "svc_LimitsController_onStatus",
+      "description": "POST /v1/limits/on-status",
+      "serviceName": "svc",
+      "httpMethod": "POST",
+      "path": "/v1/limits/on-status",
+      "inputSchema": {
+       "type": "object",
+       "properties": {}
+      }
+     },
+     {
+      "name": "svc_PathsController_createTree",
+      "description": "POST /v1/paths/trees",
+      "serviceName": "svc",
+      "httpMethod": "POST",
+      "path": "/v1/paths/trees",
+      "inputSchema": {
+       "type": "object",
+       "properties": {
+        "body": {
+         "type": "object",
+         "description": "Request body",
+         "properties": {
+          "label": {
+           "type": "string"
+          },
+          "children": {
+           "type": "array",
+           "items": {}
+          }
+         },
+         "required": [
+          "label",
+          "children"
+         ]
+        }
+       },
+       "required": [
+        "body"
+       ]
+      }
+     },
+     {
+      "name": "svc_UsersController_deleteUser",
+      "description": "DELETE /v1/users/{id}",
+      "serviceName": "svc",
+      "httpMethod": "DELETE",
+      "path": "/v1/users/{id}",
+      "inputSchema": {
+       "type": "object",
+       "properties": {
+        "path_id": {
+         "type": "string",
+         "description": "path parameter: id"
+        }
+       },
+       "required": [
+        "path_id"
+       ]
+      }
+     },
+     {
+      "name": "svc_UsersController_updateUser",
+      "description": "PATCH /v1/users/{id}",
+      "serviceName": "svc",
+      "httpMethod": "PATCH",
+      "path": "/v1/users/{id}",
+      "inputSchema": {
+       "type": "object",
+       "properties": {
+        "path_id": {
+         "type": "string",
+         "description": "path parameter: id"
+        }
+       },
+       "required": [
+        "path_id"
+       ]
+      }
+     },
+     {
+      "name": "svc_UsersController_replaceUser",
+      "description": "PUT /v1/users/{id}",
+      "serviceName": "svc",
+      "httpMethod": "PUT",
+      "path": "/v1/users/{id}",
+      "inputSchema": {
+       "type": "object",
+       "properties": {
+        "path_id": {
+         "type": "string",
+         "description": "path parameter: id"
+        },
+        "body": {
+         "type": "object",
+         "description": "Request body",
+         "properties": {
+          "name": {
+           "type": "string",
+           "description": "Display name"
+          },
+          "homeAddress": {
+           "type": "object",
+           "properties": {
+            "street": {
+             "type": "string",
+             "description": "Street line"
+            },
+            "city": {
+             "type": "string"
+            }
+           },
+           "required": [
+            "street",
+            "city"
+           ]
+          },
+          "workAddress": {},
+          "tags": {
+           "type": "array",
+           "items": {
+            "type": "string"
+           }
+          }
+         },
+         "required": [
+          "name",
+          "homeAddress",
+          "workAddress"
+         ]
+        }
+       },
+       "required": [
+        "path_id",
+        "body"
+       ]
+      }
+     },
+     {
+      "name": "svc_UsersController_headUser",
+      "description": "HEAD /v1/users/{id}",
+      "serviceName": "svc",
+      "httpMethod": "HEAD",
+      "path": "/v1/users/{id}",
+      "inputSchema": {
+       "type": "object",
+       "properties": {
+        "path_id": {
+         "type": "string",
+         "description": "path parameter: id"
+        }
+       },
+       "required": [
+        "path_id"
+       ]
+      }
+     }
+    ],
+    "warnings": []
+   },
+   "d8": {
+    "tools": [
+     {
+      "name": "svc_UsersController_listUsers",
+      "description": "Returns every user.",
+      "serviceName": "svc",
+      "httpMethod": "GET",
+      "path": "/v1/users",
+      "inputSchema": {
+       "type": "object",
+       "properties": {
+        "query_page": {
+         "type": "number",
+         "description": "query parameter: page"
+        },
+        "query_sort": {
+         "type": "string",
+         "description": "query parameter: sort",
+         "enum": [
+          "asc",
+          "desc"
+         ]
+        }
+       }
+      }
+     },
+     {
+      "name": "svc_UsersController_getUser",
+      "description": "GET /v1/users/{id}",
+      "serviceName": "svc",
+      "httpMethod": "GET",
+      "path": "/v1/users/{id}",
+      "inputSchema": {
+       "type": "object",
+       "properties": {
+        "path_id": {
+         "type": "string",
+         "description": "path parameter: id"
+        },
+        "header_x-request-id": {
+         "type": "string",
+         "description": "header parameter: x-request-id"
+        },
+        "header_Permission-In-Any-Guard": {
+         "type": "string",
+         "description": "header parameter: Permission-In-Any-Guard"
+        },
+        "header_auth-user-id": {
+         "type": "string",
+         "description": "header parameter: auth-user-id"
+        }
+       },
+       "required": [
+        "path_id"
+       ]
+      }
+     },
+     {
+      "name": "svc_UsersController_getMe",
+      "description": "GET /v1/users/me",
+      "serviceName": "svc",
+      "httpMethod": "GET",
+      "path": "/v1/users/me",
+      "inputSchema": {
+       "type": "object",
+       "properties": {}
+      }
+     },
+     {
+      "name": "svc_LimitsController_plain",
+      "description": "GET /v1/limits/plain",
+      "serviceName": "svc",
+      "httpMethod": "GET",
+      "path": "/v1/limits/plain",
+      "inputSchema": {
+       "type": "object",
+       "properties": {}
+      }
+     },
+     {
+      "name": "svc_LimitsController_stacked",
+      "description": "GET /v1/limits/stacked",
+      "serviceName": "svc",
+      "httpMethod": "GET",
+      "path": "/v1/limits/stacked",
+      "inputSchema": {
+       "type": "object",
+       "properties": {}
+      }
+     },
+     {
+      "name": "svc_LimitsController_stackedStatus",
+      "description": "GET /v1/limits/stacked-status",
+      "serviceName": "svc",
+      "httpMethod": "GET",
+      "path": "/v1/limits/stacked-status",
+      "inputSchema": {
+       "type": "object",
+       "properties": {}
+      }
+     },
+     {
+      "name": "svc_PathsController_files",
+      "description": "GET /v1/paths/files/{path}",
+      "serviceName": "svc",
+      "httpMethod": "GET",
+      "path": "/v1/paths/files/{path}",
+      "inputSchema": {
+       "type": "object",
+       "properties": {
+        "path_path": {
+         "type": "string",
+         "description": "path parameter: path"
+        }
+       },
+       "required": [
+        "path_path"
+       ]
+      }
+     },
+     {
+      "name": "svc_PathsController_optional",
+      "description": "GET /v1/paths/optional",
+      "serviceName": "svc",
+      "httpMethod": "GET",
+      "path": "/v1/paths/optional",
+      "inputSchema": {
+       "type": "object",
+       "properties": {}
+      }
+     },
+     {
+      "name": "svc_PathsController_escaped",
+      "description": "GET /v1/paths/escaped",
+      "serviceName": "svc",
+      "httpMethod": "GET",
+      "path": "/v1/paths/escaped",
+      "inputSchema": {
+       "type": "object",
+       "properties": {}
+      }
+     },
+     {
+      "name": "svc_GET_v1_paths_anonymous_slug",
+      "description": "GET /v1/paths/anonymous/{slug}",
+      "serviceName": "svc",
+      "httpMethod": "GET",
+      "path": "/v1/paths/anonymous/{slug}",
+      "inputSchema": {
+       "type": "object",
+       "properties": {
+        "path_slug": {
+         "type": "string",
+         "description": "path parameter: slug"
+        }
+       },
+       "required": [
+        "path_slug"
+       ]
+      }
+     },
+     {
+      "name": "svc_UsersController_createUser",
+      "description": "POST /v1/users",
+      "serviceName": "svc",
+      "httpMethod": "POST",
+      "path": "/v1/users",
+      "inputSchema": {
+       "type": "object",
+       "properties": {
+        "body": {
+         "type": "object",
+         "description": "The new user",
+         "properties": {
+          "name": {
+           "type": "string",
+           "description": "Display name"
+          },
+          "homeAddress": {
+           "type": "object",
+           "properties": {
+            "street": {
+             "type": "string",
+             "description": "Street line"
+            },
+            "city": {
+             "type": "string"
+            }
+           },
+           "required": [
+            "street",
+            "city"
+           ]
+          },
+          "workAddress": {
+           "type": "object",
+           "properties": {
+            "street": {
+             "type": "string",
+             "description": "Street line"
+            },
+            "city": {
+             "type": "string"
+            }
+           },
+           "required": [
+            "street",
+            "city"
+           ]
+          },
+          "tags": {
+           "type": "array",
+           "items": {
+            "type": "string"
+           }
+          }
+         },
+         "required": [
+          "name",
+          "homeAddress",
+          "workAddress"
+         ]
+        }
+       },
+       "required": [
+        "body"
+       ]
+      }
+     },
+     {
+      "name": "svc_LimitsController_onStatus",
+      "description": "POST /v1/limits/on-status",
+      "serviceName": "svc",
+      "httpMethod": "POST",
+      "path": "/v1/limits/on-status",
+      "inputSchema": {
+       "type": "object",
+       "properties": {}
+      }
+     },
+     {
+      "name": "svc_PathsController_createTree",
+      "description": "POST /v1/paths/trees",
+      "serviceName": "svc",
+      "httpMethod": "POST",
+      "path": "/v1/paths/trees",
+      "inputSchema": {
+       "type": "object",
+       "properties": {
+        "body": {
+         "type": "object",
+         "description": "Request body",
+         "properties": {
+          "label": {
+           "type": "string"
+          },
+          "children": {
+           "type": "array",
+           "items": {}
+          }
+         },
+         "required": [
+          "label",
+          "children"
+         ]
+        }
+       },
+       "required": [
+        "body"
+       ]
+      }
+     },
+     {
+      "name": "svc_UsersController_deleteUser",
+      "description": "DELETE /v1/users/{id}",
+      "serviceName": "svc",
+      "httpMethod": "DELETE",
+      "path": "/v1/users/{id}",
+      "inputSchema": {
+       "type": "object",
+       "properties": {
+        "path_id": {
+         "type": "string",
+         "description": "path parameter: id"
+        }
+       },
+       "required": [
+        "path_id"
+       ]
+      }
+     },
+     {
+      "name": "svc_UsersController_updateUser",
+      "description": "PATCH /v1/users/{id}",
+      "serviceName": "svc",
+      "httpMethod": "PATCH",
+      "path": "/v1/users/{id}",
+      "inputSchema": {
+       "type": "object",
+       "properties": {
+        "path_id": {
+         "type": "string",
+         "description": "path parameter: id"
+        }
+       },
+       "required": [
+        "path_id"
+       ]
+      }
+     },
+     {
+      "name": "svc_UsersController_replaceUser",
+      "description": "PUT /v1/users/{id}",
+      "serviceName": "svc",
+      "httpMethod": "PUT",
+      "path": "/v1/users/{id}",
+      "inputSchema": {
+       "type": "object",
+       "properties": {
+        "path_id": {
+         "type": "string",
+         "description": "path parameter: id"
+        },
+        "body": {
+         "type": "object",
+         "description": "Request body",
+         "properties": {
+          "name": {
+           "type": "string",
+           "description": "Display name"
+          },
+          "homeAddress": {
+           "type": "object",
+           "properties": {
+            "street": {
+             "type": "string",
+             "description": "Street line"
+            },
+            "city": {
+             "type": "string"
+            }
+           },
+           "required": [
+            "street",
+            "city"
+           ]
+          },
+          "workAddress": {
+           "type": "object",
+           "properties": {
+            "street": {
+             "type": "string",
+             "description": "Street line"
+            },
+            "city": {
+             "type": "string"
+            }
+           },
+           "required": [
+            "street",
+            "city"
+           ]
+          },
+          "tags": {
+           "type": "array",
+           "items": {
+            "type": "string"
+           }
+          }
+         },
+         "required": [
+          "name",
+          "homeAddress",
+          "workAddress"
+         ]
+        }
+       },
+       "required": [
+        "path_id",
+        "body"
+       ]
+      }
+     },
+     {
+      "name": "svc_UsersController_headUser",
+      "description": "HEAD /v1/users/{id}",
+      "serviceName": "svc",
+      "httpMethod": "HEAD",
+      "path": "/v1/users/{id}",
+      "inputSchema": {
+       "type": "object",
+       "properties": {
+        "path_id": {
+         "type": "string",
+         "description": "path parameter: id"
+        }
+       },
+       "required": [
+        "path_id"
+       ]
+      }
+     }
+    ],
+    "warnings": []
+   }
+  },
+  {
+   "name": "two services",
+   "services": {
+    "svc": {
+     "openapi": "3.0.0",
+     "paths": {
+      "/v1/users": {
+       "get": {
+        "description": "Returns every user.",
+        "operationId": "UsersController_listUsers",
+        "parameters": [
+         {
+          "name": "page",
+          "required": false,
+          "in": "query",
+          "schema": {
+           "type": "number"
+          }
+         },
+         {
+          "name": "sort",
+          "required": false,
+          "in": "query",
+          "schema": {
+           "enum": [
+            "asc",
+            "desc"
+           ],
+           "type": "string"
+          }
+         }
+        ],
+        "responses": {
+         "200": {
+          "description": ""
+         }
+        },
+        "summary": "List users",
+        "tags": [
+         "users"
+        ],
+        "x-api-mcp": [
+         {
+          "description": "List users"
+         }
+        ]
+       },
+       "post": {
+        "operationId": "UsersController_createUser",
+        "parameters": [],
+        "requestBody": {
+         "required": true,
+         "description": "The new user",
+         "content": {
+          "application/json": {
+           "schema": {
+            "$ref": "#/components/schemas/CreateUserDto"
+           }
+          }
+         }
+        },
+        "responses": {
+         "201": {
+          "description": ""
+         }
+        },
+        "summary": "Create a user",
+        "tags": [
+         "users"
+        ],
+        "x-rate-limits": [
+         {
+          "limit": 1,
+          "ttl": 60,
+          "status": 201
+         }
+        ]
+       }
+      },
+      "/v1/users/{id}": {
+       "get": {
+        "operationId": "UsersController_getUser",
+        "parameters": [
+         {
+          "name": "id",
+          "required": true,
+          "in": "path",
+          "schema": {
+           "type": "string"
+          }
+         },
+         {
+          "name": "x-request-id",
+          "in": "header",
+          "required": false,
+          "schema": {
+           "type": "string"
+          }
+         },
+         {
+          "name": "Permission-In-Any-Guard",
+          "in": "header",
+          "required": false,
+          "schema": {
+           "type": "string"
+          }
+         },
+         {
+          "name": "auth-user-id",
+          "in": "header",
+          "required": false,
+          "schema": {
+           "type": "string"
+          }
+         }
+        ],
+        "responses": {
+         "200": {
+          "description": ""
+         }
+        },
+        "security": [
+         {
+          "auth-user-id": []
+         }
+        ],
+        "summary": "Get a user",
+        "tags": [
+         "users"
+        ]
+       },
+       "put": {
+        "operationId": "UsersController_replaceUser",
+        "parameters": [
+         {
+          "name": "id",
+          "required": true,
+          "in": "path",
+          "schema": {
+           "type": "string"
+          }
+         }
+        ],
+        "requestBody": {
+         "required": true,
+         "content": {
+          "application/json": {
+           "schema": {
+            "$ref": "#/components/schemas/CreateUserDto"
+           }
+          }
+         }
+        },
+        "responses": {
+         "200": {
+          "description": ""
+         }
+        },
+        "security": [
+         {
+          "x-api-key": []
+         }
+        ],
+        "tags": [
+         "users"
+        ]
+       },
+       "patch": {
+        "operationId": "UsersController_updateUser",
+        "parameters": [
+         {
+          "name": "id",
+          "required": true,
+          "in": "path",
+          "schema": {
+           "type": "string"
+          }
+         }
+        ],
+        "responses": {
+         "200": {
+          "description": ""
+         }
+        },
+        "security": [
+         {
+          "x-api-key": []
+         },
+         {
+          "auth-user-id": []
+         }
+        ],
+        "tags": [
+         "users"
+        ]
+       },
+       "delete": {
+        "operationId": "UsersController_deleteUser",
+        "parameters": [
+         {
+          "name": "id",
+          "required": true,
+          "in": "path",
+          "schema": {
+           "type": "string"
+          }
+         }
+        ],
+        "responses": {
+         "200": {
+          "description": ""
+         }
+        },
+        "tags": [
+         "users"
+        ]
+       },
+       "head": {
+        "operationId": "UsersController_headUser",
+        "parameters": [
+         {
+          "name": "id",
+          "required": true,
+          "in": "path",
+          "schema": {
+           "type": "string"
+          }
+         }
+        ],
+        "responses": {
+         "200": {
+          "description": ""
+         }
+        },
+        "tags": [
+         "users"
+        ]
+       }
+      },
+      "/v1/users/me": {
+       "get": {
+        "operationId": "UsersController_getMe",
+        "parameters": [],
+        "responses": {
+         "200": {
+          "description": ""
+         }
+        },
+        "security": [
+         {
+          "bearer": []
+         }
+        ],
+        "summary": "The current user",
+        "tags": [
+         "users"
+        ]
+       }
+      },
+      "/v1/limits/plain": {
+       "get": {
+        "operationId": "LimitsController_plain",
+        "parameters": [],
+        "responses": {
+         "200": {
+          "description": ""
+         }
+        },
+        "tags": [
+         "limits"
+        ],
+        "x-rate-limits": [
+         {
+          "limit": 2,
+          "ttl": 60
+         }
+        ]
+       }
+      },
+      "/v1/limits/on-status": {
+       "post": {
+        "operationId": "LimitsController_onStatus",
+        "parameters": [],
+        "responses": {
+         "201": {
+          "description": ""
+         }
+        },
+        "tags": [
+         "limits"
+        ],
+        "x-rate-limits": [
+         {
+          "limit": 1,
+          "ttl": 60,
+          "status": 201
+         }
+        ]
+       }
+      },
+      "/v1/limits/stacked": {
+       "get": {
+        "operationId": "LimitsController_stacked",
+        "parameters": [],
+        "responses": {
+         "200": {
+          "description": ""
+         }
+        },
+        "tags": [
+         "limits"
+        ],
+        "x-rate-limits": [
+         {
+          "limit": 5,
+          "ttl": 7200
+         },
+         {
+          "limit": 3,
+          "ttl": 60
+         }
+        ]
+       }
+      },
+      "/v1/limits/stacked-status": {
+       "get": {
+        "operationId": "LimitsController_stackedStatus",
+        "parameters": [],
+        "responses": {
+         "200": {
+          "description": ""
+         }
+        },
+        "tags": [
+         "limits"
+        ],
+        "x-rate-limits": [
+         {
+          "limit": 1,
+          "ttl": 3600,
+          "status": 404
+         },
+         {
+          "limit": 2,
+          "ttl": 60
+         }
+        ]
+       }
+      },
+      "/v1/paths/files/{path}": {
+       "get": {
+        "operationId": "PathsController_files",
+        "parameters": [
+         {
+          "name": "path",
+          "required": true,
+          "in": "path",
+          "schema": {
+           "type": "string"
+          }
+         }
+        ],
+        "responses": {
+         "200": {
+          "description": ""
+         }
+        },
+        "tags": [
+         "paths"
+        ],
+        "x-router-path": "/v1/paths/files/*path"
+       }
+      },
+      "/v1/paths/optional": {
+       "get": {
+        "operationId": "PathsController_optional",
+        "parameters": [],
+        "responses": {
+         "200": {
+          "description": ""
+         }
+        },
+        "tags": [
+         "paths"
+        ],
+        "x-router-path": "/v1/paths/optional{/:id}"
+       }
+      },
+      "/v1/paths/escaped": {
+       "get": {
+        "operationId": "PathsController_escaped",
+        "parameters": [],
+        "responses": {
+         "200": {
+          "description": ""
+         }
+        },
+        "tags": [
+         "paths"
+        ],
+        "x-router-path": "/v1/paths/escaped\\:literal"
+       }
+      },
+      "/v1/paths/anonymous/{slug}": {
+       "get": {
+        "parameters": [
+         {
+          "name": "slug",
+          "required": true,
+          "in": "path",
+          "schema": {
+           "type": "string"
+          }
+         }
+        ],
+        "responses": {
+         "200": {
+          "description": ""
+         }
+        },
+        "tags": [
+         "paths"
+        ]
+       }
+      },
+      "/v1/paths/trees": {
+       "post": {
+        "operationId": "PathsController_createTree",
+        "parameters": [],
+        "requestBody": {
+         "required": true,
+         "content": {
+          "application/json": {
+           "schema": {
+            "$ref": "#/components/schemas/TreeNodeDto"
+           }
+          }
+         }
+        },
+        "responses": {
+         "201": {
+          "description": ""
+         }
+        },
+        "tags": [
+         "paths"
+        ]
+       }
+      }
+     },
+     "info": {
+      "title": "users-service",
+      "description": "Conformance fixture users-service",
+      "version": "1.0",
+      "contact": {}
+     },
+     "tags": [],
+     "servers": [],
+     "components": {
+      "securitySchemes": {
+       "bearer": {
+        "scheme": "bearer",
+        "bearerFormat": "JWT",
+        "type": "http"
+       },
+       "auth-user-id": {
+        "type": "apiKey",
+        "in": "header",
+        "name": "auth-user-id"
+       },
+       "x-api-key": {
+        "type": "apiKey",
+        "in": "header",
+        "name": "x-api-key"
+       }
+      },
+      "schemas": {
+       "AddressDto": {
+        "type": "object",
+        "properties": {
+         "street": {
+          "type": "string",
+          "description": "Street line"
+         },
+         "city": {
+          "type": "string"
+         }
+        },
+        "required": [
+         "street",
+         "city"
+        ]
+       },
+       "CreateUserDto": {
+        "type": "object",
+        "properties": {
+         "name": {
+          "type": "string",
+          "description": "Display name"
+         },
+         "homeAddress": {
+          "$ref": "#/components/schemas/AddressDto"
+         },
+         "workAddress": {
+          "$ref": "#/components/schemas/AddressDto"
+         },
+         "tags": {
+          "type": "array",
+          "items": {
+           "type": "string"
+          }
+         }
+        },
+        "required": [
+         "name",
+         "homeAddress",
+         "workAddress"
+        ]
+       },
+       "TreeNodeDto": {
+        "type": "object",
+        "properties": {
+         "label": {
+          "type": "string"
+         },
+         "children": {
+          "type": "array",
+          "items": {
+           "$ref": "#/components/schemas/TreeNodeDto"
+          }
+         }
+        },
+        "required": [
+         "label",
+         "children"
+        ]
+       }
+      }
+     }
+    },
+    "other": {
+     "openapi": "3.0.0",
+     "paths": {
+      "/oauth/token": {
+       "post": {
+        "operationId": "OauthController_token",
+        "parameters": [],
+        "responses": {
+         "201": {
+          "description": ""
+         }
+        },
+        "tags": [
+         "oauth"
+        ],
+        "x-rate-limits": [
+         {
+          "limit": 2,
+          "ttl": 60
+         }
+        ]
+       }
+      },
+      "/oauth/authorize": {
+       "get": {
+        "operationId": "OauthController_authorize",
+        "parameters": [],
+        "responses": {
+         "200": {
+          "description": ""
+         }
+        },
+        "tags": [
+         "oauth"
+        ]
+       }
+      },
+      "/health": {
+       "get": {
+        "operationId": "DefaultController_health",
+        "parameters": [],
+        "responses": {
+         "200": {
+          "description": ""
+         }
+        },
+        "tags": [
+         "default"
+        ]
+       }
+      },
+      "/v1/items/{id}": {
+       "get": {
+        "operationId": "DefaultController_item",
+        "parameters": [
+         {
+          "name": "id",
+          "required": true,
+          "in": "path",
+          "schema": {
+           "type": "string"
+          }
+         }
+        ],
+        "responses": {
+         "200": {
+          "description": ""
+         }
+        },
+        "tags": [
+         "default"
+        ]
+       }
+      },
+      "/v1/limits/plain": {
+       "get": {
+        "operationId": "DefaultController_plain",
+        "parameters": [],
+        "responses": {
+         "200": {
+          "description": ""
+         }
+        },
+        "tags": [
+         "default"
+        ],
+        "x-rate-limits": [
+         {
+          "limit": 2,
+          "ttl": 60
+         }
+        ]
+       }
+      }
+     },
+     "info": {
+      "title": "default-service",
+      "description": "Conformance fixture default-service",
+      "version": "1.0",
+      "contact": {}
+     },
+     "tags": [],
+     "servers": [],
+     "components": {
+      "securitySchemes": {
+       "bearer": {
+        "scheme": "bearer",
+        "bearerFormat": "JWT",
+        "type": "http"
+       },
+       "auth-user-id": {
+        "type": "apiKey",
+        "in": "header",
+        "name": "auth-user-id"
+       },
+       "x-api-key": {
+        "type": "apiKey",
+        "in": "header",
+        "name": "x-api-key"
+       }
+      },
+      "schemas": {}
+     }
+    }
+   },
+   "reference": {
+    "tools": [
+     {
+      "name": "svc_UsersController_listUsers",
+      "description": "Returns every user.",
+      "serviceName": "svc",
+      "httpMethod": "GET",
+      "path": "/v1/users",
+      "inputSchema": {
+       "type": "object",
+       "properties": {
+        "query_page": {
+         "type": "number",
+         "description": "query parameter: page"
+        },
+        "query_sort": {
+         "type": "string",
+         "description": "query parameter: sort",
+         "enum": [
+          "asc",
+          "desc"
+         ]
+        }
+       }
+      }
+     },
+     {
+      "name": "svc_UsersController_getUser",
+      "description": "GET /v1/users/{id}",
+      "serviceName": "svc",
+      "httpMethod": "GET",
+      "path": "/v1/users/{id}",
+      "inputSchema": {
+       "type": "object",
+       "properties": {
+        "path_id": {
+         "type": "string",
+         "description": "path parameter: id"
+        },
+        "header_x-request-id": {
+         "type": "string",
+         "description": "header parameter: x-request-id"
+        },
+        "header_Permission-In-Any-Guard": {
+         "type": "string",
+         "description": "header parameter: Permission-In-Any-Guard"
+        },
+        "header_auth-user-id": {
+         "type": "string",
+         "description": "header parameter: auth-user-id"
+        }
+       },
+       "required": [
+        "path_id"
+       ]
+      }
+     },
+     {
+      "name": "svc_UsersController_getMe",
+      "description": "GET /v1/users/me",
+      "serviceName": "svc",
+      "httpMethod": "GET",
+      "path": "/v1/users/me",
+      "inputSchema": {
+       "type": "object",
+       "properties": {}
+      }
+     },
+     {
+      "name": "svc_LimitsController_plain",
+      "description": "GET /v1/limits/plain",
+      "serviceName": "svc",
+      "httpMethod": "GET",
+      "path": "/v1/limits/plain",
+      "inputSchema": {
+       "type": "object",
+       "properties": {}
+      }
+     },
+     {
+      "name": "svc_LimitsController_stacked",
+      "description": "GET /v1/limits/stacked",
+      "serviceName": "svc",
+      "httpMethod": "GET",
+      "path": "/v1/limits/stacked",
+      "inputSchema": {
+       "type": "object",
+       "properties": {}
+      }
+     },
+     {
+      "name": "svc_LimitsController_stackedStatus",
+      "description": "GET /v1/limits/stacked-status",
+      "serviceName": "svc",
+      "httpMethod": "GET",
+      "path": "/v1/limits/stacked-status",
+      "inputSchema": {
+       "type": "object",
+       "properties": {}
+      }
+     },
+     {
+      "name": "svc_PathsController_files",
+      "description": "GET /v1/paths/files/{path}",
+      "serviceName": "svc",
+      "httpMethod": "GET",
+      "path": "/v1/paths/files/{path}",
+      "inputSchema": {
+       "type": "object",
+       "properties": {
+        "path_path": {
+         "type": "string",
+         "description": "path parameter: path"
+        }
+       },
+       "required": [
+        "path_path"
+       ]
+      }
+     },
+     {
+      "name": "svc_PathsController_optional",
+      "description": "GET /v1/paths/optional",
+      "serviceName": "svc",
+      "httpMethod": "GET",
+      "path": "/v1/paths/optional",
+      "inputSchema": {
+       "type": "object",
+       "properties": {}
+      }
+     },
+     {
+      "name": "svc_PathsController_escaped",
+      "description": "GET /v1/paths/escaped",
+      "serviceName": "svc",
+      "httpMethod": "GET",
+      "path": "/v1/paths/escaped",
+      "inputSchema": {
+       "type": "object",
+       "properties": {}
+      }
+     },
+     {
+      "name": "svc_GET_v1_paths_anonymous_slug",
+      "description": "GET /v1/paths/anonymous/{slug}",
+      "serviceName": "svc",
+      "httpMethod": "GET",
+      "path": "/v1/paths/anonymous/{slug}",
+      "inputSchema": {
+       "type": "object",
+       "properties": {
+        "path_slug": {
+         "type": "string",
+         "description": "path parameter: slug"
+        }
+       },
+       "required": [
+        "path_slug"
+       ]
+      }
+     },
+     {
+      "name": "svc_UsersController_createUser",
+      "description": "POST /v1/users",
+      "serviceName": "svc",
+      "httpMethod": "POST",
+      "path": "/v1/users",
+      "inputSchema": {
+       "type": "object",
+       "properties": {
+        "body": {
+         "type": "object",
+         "description": "The new user",
+         "properties": {
+          "name": {
+           "type": "string",
+           "description": "Display name"
+          },
+          "homeAddress": {
+           "type": "object",
+           "properties": {
+            "street": {
+             "type": "string",
+             "description": "Street line"
+            },
+            "city": {
+             "type": "string"
+            }
+           },
+           "required": [
+            "street",
+            "city"
+           ]
+          },
+          "workAddress": {},
+          "tags": {
+           "type": "array",
+           "items": {
+            "type": "string"
+           }
+          }
+         },
+         "required": [
+          "name",
+          "homeAddress",
+          "workAddress"
+         ]
+        }
+       },
+       "required": [
+        "body"
+       ]
+      }
+     },
+     {
+      "name": "svc_LimitsController_onStatus",
+      "description": "POST /v1/limits/on-status",
+      "serviceName": "svc",
+      "httpMethod": "POST",
+      "path": "/v1/limits/on-status",
+      "inputSchema": {
+       "type": "object",
+       "properties": {}
+      }
+     },
+     {
+      "name": "svc_PathsController_createTree",
+      "description": "POST /v1/paths/trees",
+      "serviceName": "svc",
+      "httpMethod": "POST",
+      "path": "/v1/paths/trees",
+      "inputSchema": {
+       "type": "object",
+       "properties": {
+        "body": {
+         "type": "object",
+         "description": "Request body",
+         "properties": {
+          "label": {
+           "type": "string"
+          },
+          "children": {
+           "type": "array",
+           "items": {}
+          }
+         },
+         "required": [
+          "label",
+          "children"
+         ]
+        }
+       },
+       "required": [
+        "body"
+       ]
+      }
+     },
+     {
+      "name": "svc_UsersController_deleteUser",
+      "description": "DELETE /v1/users/{id}",
+      "serviceName": "svc",
+      "httpMethod": "DELETE",
+      "path": "/v1/users/{id}",
+      "inputSchema": {
+       "type": "object",
+       "properties": {
+        "path_id": {
+         "type": "string",
+         "description": "path parameter: id"
+        }
+       },
+       "required": [
+        "path_id"
+       ]
+      }
+     },
+     {
+      "name": "svc_UsersController_updateUser",
+      "description": "PATCH /v1/users/{id}",
+      "serviceName": "svc",
+      "httpMethod": "PATCH",
+      "path": "/v1/users/{id}",
+      "inputSchema": {
+       "type": "object",
+       "properties": {
+        "path_id": {
+         "type": "string",
+         "description": "path parameter: id"
+        }
+       },
+       "required": [
+        "path_id"
+       ]
+      }
+     },
+     {
+      "name": "svc_UsersController_replaceUser",
+      "description": "PUT /v1/users/{id}",
+      "serviceName": "svc",
+      "httpMethod": "PUT",
+      "path": "/v1/users/{id}",
+      "inputSchema": {
+       "type": "object",
+       "properties": {
+        "path_id": {
+         "type": "string",
+         "description": "path parameter: id"
+        },
+        "body": {
+         "type": "object",
+         "description": "Request body",
+         "properties": {
+          "name": {
+           "type": "string",
+           "description": "Display name"
+          },
+          "homeAddress": {
+           "type": "object",
+           "properties": {
+            "street": {
+             "type": "string",
+             "description": "Street line"
+            },
+            "city": {
+             "type": "string"
+            }
+           },
+           "required": [
+            "street",
+            "city"
+           ]
+          },
+          "workAddress": {},
+          "tags": {
+           "type": "array",
+           "items": {
+            "type": "string"
+           }
+          }
+         },
+         "required": [
+          "name",
+          "homeAddress",
+          "workAddress"
+         ]
+        }
+       },
+       "required": [
+        "path_id",
+        "body"
+       ]
+      }
+     },
+     {
+      "name": "svc_UsersController_headUser",
+      "description": "HEAD /v1/users/{id}",
+      "serviceName": "svc",
+      "httpMethod": "HEAD",
+      "path": "/v1/users/{id}",
+      "inputSchema": {
+       "type": "object",
+       "properties": {
+        "path_id": {
+         "type": "string",
+         "description": "path parameter: id"
+        }
+       },
+       "required": [
+        "path_id"
+       ]
+      }
+     },
+     {
+      "name": "other_OauthController_authorize",
+      "description": "GET /oauth/authorize",
+      "serviceName": "other",
+      "httpMethod": "GET",
+      "path": "/oauth/authorize",
+      "inputSchema": {
+       "type": "object",
+       "properties": {}
+      }
+     },
+     {
+      "name": "other_DefaultController_health",
+      "description": "GET /health",
+      "serviceName": "other",
+      "httpMethod": "GET",
+      "path": "/health",
+      "inputSchema": {
+       "type": "object",
+       "properties": {}
+      }
+     },
+     {
+      "name": "other_DefaultController_item",
+      "description": "GET /v1/items/{id}",
+      "serviceName": "other",
+      "httpMethod": "GET",
+      "path": "/v1/items/{id}",
+      "inputSchema": {
+       "type": "object",
+       "properties": {
+        "path_id": {
+         "type": "string",
+         "description": "path parameter: id"
+        }
+       },
+       "required": [
+        "path_id"
+       ]
+      }
+     },
+     {
+      "name": "other_DefaultController_plain",
+      "description": "GET /v1/limits/plain",
+      "serviceName": "other",
+      "httpMethod": "GET",
+      "path": "/v1/limits/plain",
+      "inputSchema": {
+       "type": "object",
+       "properties": {}
+      }
+     },
+     {
+      "name": "other_OauthController_token",
+      "description": "POST /oauth/token",
+      "serviceName": "other",
+      "httpMethod": "POST",
+      "path": "/oauth/token",
+      "inputSchema": {
+       "type": "object",
+       "properties": {}
+      }
+     }
+    ],
+    "warnings": []
+   },
+   "d8": {
+    "tools": [
+     {
+      "name": "svc_UsersController_listUsers",
+      "description": "Returns every user.",
+      "serviceName": "svc",
+      "httpMethod": "GET",
+      "path": "/v1/users",
+      "inputSchema": {
+       "type": "object",
+       "properties": {
+        "query_page": {
+         "type": "number",
+         "description": "query parameter: page"
+        },
+        "query_sort": {
+         "type": "string",
+         "description": "query parameter: sort",
+         "enum": [
+          "asc",
+          "desc"
+         ]
+        }
+       }
+      }
+     },
+     {
+      "name": "svc_UsersController_getUser",
+      "description": "GET /v1/users/{id}",
+      "serviceName": "svc",
+      "httpMethod": "GET",
+      "path": "/v1/users/{id}",
+      "inputSchema": {
+       "type": "object",
+       "properties": {
+        "path_id": {
+         "type": "string",
+         "description": "path parameter: id"
+        },
+        "header_x-request-id": {
+         "type": "string",
+         "description": "header parameter: x-request-id"
+        },
+        "header_Permission-In-Any-Guard": {
+         "type": "string",
+         "description": "header parameter: Permission-In-Any-Guard"
+        },
+        "header_auth-user-id": {
+         "type": "string",
+         "description": "header parameter: auth-user-id"
+        }
+       },
+       "required": [
+        "path_id"
+       ]
+      }
+     },
+     {
+      "name": "svc_UsersController_getMe",
+      "description": "GET /v1/users/me",
+      "serviceName": "svc",
+      "httpMethod": "GET",
+      "path": "/v1/users/me",
+      "inputSchema": {
+       "type": "object",
+       "properties": {}
+      }
+     },
+     {
+      "name": "svc_LimitsController_plain",
+      "description": "GET /v1/limits/plain",
+      "serviceName": "svc",
+      "httpMethod": "GET",
+      "path": "/v1/limits/plain",
+      "inputSchema": {
+       "type": "object",
+       "properties": {}
+      }
+     },
+     {
+      "name": "svc_LimitsController_stacked",
+      "description": "GET /v1/limits/stacked",
+      "serviceName": "svc",
+      "httpMethod": "GET",
+      "path": "/v1/limits/stacked",
+      "inputSchema": {
+       "type": "object",
+       "properties": {}
+      }
+     },
+     {
+      "name": "svc_LimitsController_stackedStatus",
+      "description": "GET /v1/limits/stacked-status",
+      "serviceName": "svc",
+      "httpMethod": "GET",
+      "path": "/v1/limits/stacked-status",
+      "inputSchema": {
+       "type": "object",
+       "properties": {}
+      }
+     },
+     {
+      "name": "svc_PathsController_files",
+      "description": "GET /v1/paths/files/{path}",
+      "serviceName": "svc",
+      "httpMethod": "GET",
+      "path": "/v1/paths/files/{path}",
+      "inputSchema": {
+       "type": "object",
+       "properties": {
+        "path_path": {
+         "type": "string",
+         "description": "path parameter: path"
+        }
+       },
+       "required": [
+        "path_path"
+       ]
+      }
+     },
+     {
+      "name": "svc_PathsController_optional",
+      "description": "GET /v1/paths/optional",
+      "serviceName": "svc",
+      "httpMethod": "GET",
+      "path": "/v1/paths/optional",
+      "inputSchema": {
+       "type": "object",
+       "properties": {}
+      }
+     },
+     {
+      "name": "svc_PathsController_escaped",
+      "description": "GET /v1/paths/escaped",
+      "serviceName": "svc",
+      "httpMethod": "GET",
+      "path": "/v1/paths/escaped",
+      "inputSchema": {
+       "type": "object",
+       "properties": {}
+      }
+     },
+     {
+      "name": "svc_GET_v1_paths_anonymous_slug",
+      "description": "GET /v1/paths/anonymous/{slug}",
+      "serviceName": "svc",
+      "httpMethod": "GET",
+      "path": "/v1/paths/anonymous/{slug}",
+      "inputSchema": {
+       "type": "object",
+       "properties": {
+        "path_slug": {
+         "type": "string",
+         "description": "path parameter: slug"
+        }
+       },
+       "required": [
+        "path_slug"
+       ]
+      }
+     },
+     {
+      "name": "svc_UsersController_createUser",
+      "description": "POST /v1/users",
+      "serviceName": "svc",
+      "httpMethod": "POST",
+      "path": "/v1/users",
+      "inputSchema": {
+       "type": "object",
+       "properties": {
+        "body": {
+         "type": "object",
+         "description": "The new user",
+         "properties": {
+          "name": {
+           "type": "string",
+           "description": "Display name"
+          },
+          "homeAddress": {
+           "type": "object",
+           "properties": {
+            "street": {
+             "type": "string",
+             "description": "Street line"
+            },
+            "city": {
+             "type": "string"
+            }
+           },
+           "required": [
+            "street",
+            "city"
+           ]
+          },
+          "workAddress": {
+           "type": "object",
+           "properties": {
+            "street": {
+             "type": "string",
+             "description": "Street line"
+            },
+            "city": {
+             "type": "string"
+            }
+           },
+           "required": [
+            "street",
+            "city"
+           ]
+          },
+          "tags": {
+           "type": "array",
+           "items": {
+            "type": "string"
+           }
+          }
+         },
+         "required": [
+          "name",
+          "homeAddress",
+          "workAddress"
+         ]
+        }
+       },
+       "required": [
+        "body"
+       ]
+      }
+     },
+     {
+      "name": "svc_LimitsController_onStatus",
+      "description": "POST /v1/limits/on-status",
+      "serviceName": "svc",
+      "httpMethod": "POST",
+      "path": "/v1/limits/on-status",
+      "inputSchema": {
+       "type": "object",
+       "properties": {}
+      }
+     },
+     {
+      "name": "svc_PathsController_createTree",
+      "description": "POST /v1/paths/trees",
+      "serviceName": "svc",
+      "httpMethod": "POST",
+      "path": "/v1/paths/trees",
+      "inputSchema": {
+       "type": "object",
+       "properties": {
+        "body": {
+         "type": "object",
+         "description": "Request body",
+         "properties": {
+          "label": {
+           "type": "string"
+          },
+          "children": {
+           "type": "array",
+           "items": {}
+          }
+         },
+         "required": [
+          "label",
+          "children"
+         ]
+        }
+       },
+       "required": [
+        "body"
+       ]
+      }
+     },
+     {
+      "name": "svc_UsersController_deleteUser",
+      "description": "DELETE /v1/users/{id}",
+      "serviceName": "svc",
+      "httpMethod": "DELETE",
+      "path": "/v1/users/{id}",
+      "inputSchema": {
+       "type": "object",
+       "properties": {
+        "path_id": {
+         "type": "string",
+         "description": "path parameter: id"
+        }
+       },
+       "required": [
+        "path_id"
+       ]
+      }
+     },
+     {
+      "name": "svc_UsersController_updateUser",
+      "description": "PATCH /v1/users/{id}",
+      "serviceName": "svc",
+      "httpMethod": "PATCH",
+      "path": "/v1/users/{id}",
+      "inputSchema": {
+       "type": "object",
+       "properties": {
+        "path_id": {
+         "type": "string",
+         "description": "path parameter: id"
+        }
+       },
+       "required": [
+        "path_id"
+       ]
+      }
+     },
+     {
+      "name": "svc_UsersController_replaceUser",
+      "description": "PUT /v1/users/{id}",
+      "serviceName": "svc",
+      "httpMethod": "PUT",
+      "path": "/v1/users/{id}",
+      "inputSchema": {
+       "type": "object",
+       "properties": {
+        "path_id": {
+         "type": "string",
+         "description": "path parameter: id"
+        },
+        "body": {
+         "type": "object",
+         "description": "Request body",
+         "properties": {
+          "name": {
+           "type": "string",
+           "description": "Display name"
+          },
+          "homeAddress": {
+           "type": "object",
+           "properties": {
+            "street": {
+             "type": "string",
+             "description": "Street line"
+            },
+            "city": {
+             "type": "string"
+            }
+           },
+           "required": [
+            "street",
+            "city"
+           ]
+          },
+          "workAddress": {
+           "type": "object",
+           "properties": {
+            "street": {
+             "type": "string",
+             "description": "Street line"
+            },
+            "city": {
+             "type": "string"
+            }
+           },
+           "required": [
+            "street",
+            "city"
+           ]
+          },
+          "tags": {
+           "type": "array",
+           "items": {
+            "type": "string"
+           }
+          }
+         },
+         "required": [
+          "name",
+          "homeAddress",
+          "workAddress"
+         ]
+        }
+       },
+       "required": [
+        "path_id",
+        "body"
+       ]
+      }
+     },
+     {
+      "name": "svc_UsersController_headUser",
+      "description": "HEAD /v1/users/{id}",
+      "serviceName": "svc",
+      "httpMethod": "HEAD",
+      "path": "/v1/users/{id}",
+      "inputSchema": {
+       "type": "object",
+       "properties": {
+        "path_id": {
+         "type": "string",
+         "description": "path parameter: id"
+        }
+       },
+       "required": [
+        "path_id"
+       ]
+      }
+     },
+     {
+      "name": "other_OauthController_authorize",
+      "description": "GET /oauth/authorize",
+      "serviceName": "other",
+      "httpMethod": "GET",
+      "path": "/oauth/authorize",
+      "inputSchema": {
+       "type": "object",
+       "properties": {}
+      }
+     },
+     {
+      "name": "other_DefaultController_health",
+      "description": "GET /health",
+      "serviceName": "other",
+      "httpMethod": "GET",
+      "path": "/health",
+      "inputSchema": {
+       "type": "object",
+       "properties": {}
+      }
+     },
+     {
+      "name": "other_DefaultController_item",
+      "description": "GET /v1/items/{id}",
+      "serviceName": "other",
+      "httpMethod": "GET",
+      "path": "/v1/items/{id}",
+      "inputSchema": {
+       "type": "object",
+       "properties": {
+        "path_id": {
+         "type": "string",
+         "description": "path parameter: id"
+        }
+       },
+       "required": [
+        "path_id"
+       ]
+      }
+     },
+     {
+      "name": "other_DefaultController_plain",
+      "description": "GET /v1/limits/plain",
+      "serviceName": "other",
+      "httpMethod": "GET",
+      "path": "/v1/limits/plain",
+      "inputSchema": {
+       "type": "object",
+       "properties": {}
+      }
+     },
+     {
+      "name": "other_OauthController_token",
+      "description": "POST /oauth/token",
+      "serviceName": "other",
+      "httpMethod": "POST",
+      "path": "/oauth/token",
+      "inputSchema": {
+       "type": "object",
+       "properties": {}
+      }
+     }
+    ],
+    "warnings": []
+   }
+  },
+  {
+   "name": "types",
+   "services": {
+    "t": {
+     "openapi": "3.0.0",
+     "info": {
+      "title": "t",
+      "version": "1"
+     },
+     "paths": {
+      "/types": {
+       "get": {
+        "responses": {
+         "200": {
+          "description": ""
+         }
+        },
+        "operationId": "types",
+        "parameters": [
+         {
+          "in": "query",
+          "name": "plain",
+          "schema": {
+           "type": "string"
+          }
+         },
+         {
+          "in": "query",
+          "name": "upper",
+          "schema": {
+           "type": "STRING"
+          }
+         },
+         {
+          "in": "query",
+          "name": "mixed",
+          "schema": {
+           "type": "Integer"
+          }
+         },
+         {
+          "in": "query",
+          "name": "ctor",
+          "schema": {
+           "type": "function String() { [native code] }"
+          }
+         },
+         {
+          "in": "query",
+          "name": "ctorNumber",
+          "schema": {
+           "type": "function Number() { [native code] }"
+          }
+         },
+         {
+          "in": "query",
+          "name": "ctorBigInt",
+          "schema": {
+           "type": "function BigInt() { [native code] }"
+          }
+         },
+         {
+          "in": "query",
+          "name": "ctorBoolean",
+          "schema": {
+           "type": "function Boolean() { [native code] }"
+          }
+         },
+         {
+          "in": "query",
+          "name": "ctorArray",
+          "schema": {
+           "type": "function Array() { [native code] }"
+          }
+         },
+         {
+          "in": "query",
+          "name": "ctorObject",
+          "schema": {
+           "type": "function Object() { [native code] }"
+          }
+         },
+         {
+          "in": "query",
+          "name": "ctorDate",
+          "schema": {
+           "type": "function Date() { [native code] }"
+          }
+         },
+         {
+          "in": "query",
+          "name": "ctorAsync",
+          "schema": {
+           "type": "  async function Number() {}"
+          }
+         },
+         {
+          "in": "query",
+          "name": "ctorGenerator",
+          "schema": {
+           "type": "function* Boolean() {}"
+          }
+         },
+         {
+          "in": "query",
+          "name": "ctorUnknown",
+          "schema": {
+           "type": "function Whatever() { [native code] }"
+          }
+         },
+         {
+          "in": "query",
+          "name": "ctorLower",
+          "schema": {
+           "type": "function string() {}"
+          }
+         },
+         {
+          "in": "query",
+          "name": "ctorNoSpace",
+          "schema": {
+           "type": "functionString() {}"
+          }
+         },
+         {
+          "in": "query",
+          "name": "class",
+          "schema": {
+           "type": "class String {}"
+          }
+         },
+         {
+          "in": "query",
+          "name": "list",
+          "schema": {
+           "type": [
+            "String",
+            "null"
+           ]
+          }
+         },
+         {
+          "in": "query",
+          "name": "listMixed",
+          "schema": {
+           "type": [
+            "function Number() { }",
+            "bogus",
+            "BOOLEAN"
+           ]
+          }
+         },
+         {
+          "in": "query",
+          "name": "listBad",
+          "schema": {
+           "type": [
+            "bogus"
+           ]
+          }
+         },
+         {
+          "in": "query",
+          "name": "listEmpty",
+          "schema": {
+           "type": []
+          }
+         },
+         {
+          "in": "query",
+          "name": "listNested",
+          "schema": {
+           "type": [
+            [
+             "string"
+            ]
+           ]
+          }
+         },
+         {
+          "in": "query",
+          "name": "bogus",
+          "schema": {
+           "type": "bogus"
+          }
+         },
+         {
+          "in": "query",
+          "name": "number",
+          "schema": {
+           "type": 42
+          }
+         },
+         {
+          "in": "query",
+          "name": "bool",
+          "schema": {
+           "type": true
+          }
+         },
+         {
+          "in": "query",
+          "name": "object",
+          "schema": {
+           "type": {}
+          }
+         },
+         {
+          "in": "query",
+          "name": "null",
+          "schema": {
+           "type": null
+          }
+         },
+         {
+          "in": "query",
+          "name": "noType",
+          "schema": {
+           "format": "uuid"
+          }
+         },
+         {
+          "in": "query",
+          "name": "noSchema"
+         },
+         {
+          "in": "query",
+          "name": "withEnum",
+          "schema": {
+           "type": "string",
+           "enum": [
+            "a",
+            "b"
+           ]
+          }
+         },
+         {
+          "in": "query",
+          "name": "emptyEnum",
+          "schema": {
+           "type": "string",
+           "enum": []
+          }
+         },
+         {
+          "in": "query",
+          "name": "stringEnum",
+          "schema": {
+           "type": "string",
+           "enum": "abc"
+          }
+         },
+         {
+          "in": "query",
+          "name": "zeroEnum",
+          "schema": {
+           "type": "number",
+           "enum": 0
+          }
+         },
+         {
+          "in": "query",
+          "name": "described",
+          "schema": {
+           "type": "string"
+          },
+          "description": "A thing"
+         },
+         {
+          "in": "query",
+          "name": "emptyDescription",
+          "schema": {
+           "type": "string"
+          },
+          "description": ""
+         },
+         {
+          "in": "path",
+          "name": "req",
+          "schema": {
+           "type": "string"
+          },
+          "required": true
+         },
+         {
+          "in": "header",
+          "name": "reqTruthy",
+          "schema": {
+           "type": "string"
+          },
+          "required": "yes"
+         },
+         {
+          "in": "header",
+          "name": "reqFalse",
+          "schema": {
+           "type": "string"
+          },
+          "required": false
+         },
+         {
+          "in": "cookie",
+          "name": "cookie",
+          "schema": {
+           "type": "string"
+          }
+         },
+         {
+          "name": "noIn",
+          "schema": {
+           "type": "string"
+          }
+         },
+         {
+          "in": "query",
+          "schema": {
+           "type": "string"
+          }
+         },
+         {
+          "$ref": "#/components/parameters/Shared"
+         },
+         {
+          "in": "path",
+          "name": "req",
+          "schema": {
+           "type": "number"
+          },
+          "required": true,
+          "description": "again"
+         }
+        ]
+       }
+      },
+      "/no-parameters": {
+       "get": {
+        "responses": {
+         "200": {
+          "description": ""
+         }
+        },
+        "operationId": "noParameters"
+       }
+      },
+      "/empty-parameters": {
+       "get": {
+        "responses": {
+         "200": {
+          "description": ""
+         }
+        },
+        "operationId": "emptyParameters",
+        "parameters": []
+       }
+      }
+     },
+     "components": {
+      "parameters": {
+       "Shared": {
+        "in": "query",
+        "name": "shared",
+        "schema": {
+         "type": "string"
+        }
+       }
+      }
+     }
+    }
+   },
+   "reference": {
+    "tools": [
+     {
+      "name": "t_types",
+      "description": "GET /types",
+      "serviceName": "t",
+      "httpMethod": "GET",
+      "path": "/types",
+      "inputSchema": {
+       "type": "object",
+       "properties": {
+        "query_plain": {
+         "type": "string",
+         "description": "query parameter: plain"
+        },
+        "query_upper": {
+         "type": "string",
+         "description": "query parameter: upper"
+        },
+        "query_mixed": {
+         "type": "integer",
+         "description": "query parameter: mixed"
+        },
+        "query_ctor": {
+         "type": "string",
+         "description": "query parameter: ctor"
+        },
+        "query_ctorNumber": {
+         "type": "number",
+         "description": "query parameter: ctorNumber"
+        },
+        "query_ctorBigInt": {
+         "type": "number",
+         "description": "query parameter: ctorBigInt"
+        },
+        "query_ctorBoolean": {
+         "type": "boolean",
+         "description": "query parameter: ctorBoolean"
+        },
+        "query_ctorArray": {
+         "type": "array",
+         "description": "query parameter: ctorArray"
+        },
+        "query_ctorObject": {
+         "type": "object",
+         "description": "query parameter: ctorObject"
+        },
+        "query_ctorDate": {
+         "type": "string",
+         "description": "query parameter: ctorDate"
+        },
+        "query_ctorAsync": {
+         "type": "number",
+         "description": "query parameter: ctorAsync"
+        },
+        "query_ctorGenerator": {
+         "type": "boolean",
+         "description": "query parameter: ctorGenerator"
+        },
+        "query_ctorUnknown": {
+         "type": "string",
+         "description": "query parameter: ctorUnknown"
+        },
+        "query_ctorLower": {
+         "type": "string",
+         "description": "query parameter: ctorLower"
+        },
+        "query_ctorNoSpace": {
+         "type": "string",
+         "description": "query parameter: ctorNoSpace"
+        },
+        "query_class": {
+         "type": "string",
+         "description": "query parameter: class"
+        },
+        "query_list": {
+         "type": [
+          "string",
+          "null"
+         ],
+         "description": "query parameter: list"
+        },
+        "query_listMixed": {
+         "type": [
+          "number",
+          "boolean"
+         ],
+         "description": "query parameter: listMixed"
+        },
+        "query_listBad": {
+         "type": "string",
+         "description": "query parameter: listBad"
+        },
+        "query_listEmpty": {
+         "type": "string",
+         "description": "query parameter: listEmpty"
+        },
+        "query_listNested": {
+         "type": "string",
+         "description": "query parameter: listNested"
+        },
+        "query_bogus": {
+         "type": "string",
+         "description": "query parameter: bogus"
+        },
+        "query_number": {
+         "type": "string",
+         "description": "query parameter: number"
+        },
+        "query_bool": {
+         "type": "string",
+         "description": "query parameter: bool"
+        },
+        "query_object": {
+         "type": "string",
+         "description": "query parameter: object"
+        },
+        "query_null": {
+         "type": "string",
+         "description": "query parameter: null"
+        },
+        "query_noType": {
+         "type": "string",
+         "description": "query parameter: noType"
+        },
+        "query_noSchema": {
+         "type": "string",
+         "description": "query parameter: noSchema"
+        },
+        "query_withEnum": {
+         "type": "string",
+         "description": "query parameter: withEnum",
+         "enum": [
+          "a",
+          "b"
+         ]
+        },
+        "query_emptyEnum": {
+         "type": "string",
+         "description": "query parameter: emptyEnum",
+         "enum": []
+        },
+        "query_stringEnum": {
+         "type": "string",
+         "description": "query parameter: stringEnum",
+         "enum": "abc"
+        },
+        "query_zeroEnum": {
+         "type": "number",
+         "description": "query parameter: zeroEnum"
+        },
+        "query_described": {
+         "type": "string",
+         "description": "A thing"
+        },
+        "query_emptyDescription": {
+         "type": "string",
+         "description": "query parameter: emptyDescription"
+        },
+        "path_req": {
+         "type": "number",
+         "description": "again"
+        },
+        "header_reqTruthy": {
+         "type": "string",
+         "description": "header parameter: reqTruthy"
+        },
+        "header_reqFalse": {
+         "type": "string",
+         "description": "header parameter: reqFalse"
+        },
+        "cookie_cookie": {
+         "type": "string",
+         "description": "cookie parameter: cookie"
+        },
+        "undefined_noIn": {
+         "type": "string",
+         "description": "undefined parameter: noIn"
+        },
+        "query_undefined": {
+         "type": "string",
+         "description": "query parameter: undefined"
+        },
+        "undefined_undefined": {
+         "type": "string",
+         "description": "undefined parameter: undefined"
+        }
+       },
+       "required": [
+        "path_req",
+        "header_reqTruthy",
+        "path_req"
+       ]
+      }
+     },
+     {
+      "name": "t_noParameters",
+      "description": "GET /no-parameters",
+      "serviceName": "t",
+      "httpMethod": "GET",
+      "path": "/no-parameters",
+      "inputSchema": {
+       "type": "object",
+       "properties": {}
+      }
+     },
+     {
+      "name": "t_emptyParameters",
+      "description": "GET /empty-parameters",
+      "serviceName": "t",
+      "httpMethod": "GET",
+      "path": "/empty-parameters",
+      "inputSchema": {
+       "type": "object",
+       "properties": {}
+      }
+     }
+    ],
+    "warnings": [
+     "Unmappable type \"function Whatever() { [native code] }\" for parameter \"query.ctorUnknown\" (t get /types); defaulting to \"string\".",
+     "Unmappable type \"function string() {}\" for parameter \"query.ctorLower\" (t get /types); defaulting to \"string\".",
+     "Unmappable type \"functionString() {}\" for parameter \"query.ctorNoSpace\" (t get /types); defaulting to \"string\".",
+     "Unmappable type \"class String {}\" for parameter \"query.class\" (t get /types); defaulting to \"string\".",
+     "Unmappable type \"bogus\" for parameter \"query.listBad\" (t get /types); defaulting to \"string\".",
+     "Unmappable type \"\" for parameter \"query.listEmpty\" (t get /types); defaulting to \"string\".",
+     "Unmappable type \"string\" for parameter \"query.listNested\" (t get /types); defaulting to \"string\".",
+     "Unmappable type \"bogus\" for parameter \"query.bogus\" (t get /types); defaulting to \"string\".",
+     "Unmappable type \"42\" for parameter \"query.number\" (t get /types); defaulting to \"string\".",
+     "Unmappable type \"true\" for parameter \"query.bool\" (t get /types); defaulting to \"string\".",
+     "Unmappable type \"[object Object]\" for parameter \"query.object\" (t get /types); defaulting to \"string\"."
+    ]
+   },
+   "d8": {
+    "tools": [
+     {
+      "name": "t_types",
+      "description": "GET /types",
+      "serviceName": "t",
+      "httpMethod": "GET",
+      "path": "/types",
+      "inputSchema": {
+       "type": "object",
+       "properties": {
+        "query_plain": {
+         "type": "string",
+         "description": "query parameter: plain"
+        },
+        "query_upper": {
+         "type": "string",
+         "description": "query parameter: upper"
+        },
+        "query_mixed": {
+         "type": "integer",
+         "description": "query parameter: mixed"
+        },
+        "query_ctor": {
+         "type": "string",
+         "description": "query parameter: ctor"
+        },
+        "query_ctorNumber": {
+         "type": "number",
+         "description": "query parameter: ctorNumber"
+        },
+        "query_ctorBigInt": {
+         "type": "number",
+         "description": "query parameter: ctorBigInt"
+        },
+        "query_ctorBoolean": {
+         "type": "boolean",
+         "description": "query parameter: ctorBoolean"
+        },
+        "query_ctorArray": {
+         "type": "array",
+         "description": "query parameter: ctorArray"
+        },
+        "query_ctorObject": {
+         "type": "object",
+         "description": "query parameter: ctorObject"
+        },
+        "query_ctorDate": {
+         "type": "string",
+         "description": "query parameter: ctorDate"
+        },
+        "query_ctorAsync": {
+         "type": "number",
+         "description": "query parameter: ctorAsync"
+        },
+        "query_ctorGenerator": {
+         "type": "boolean",
+         "description": "query parameter: ctorGenerator"
+        },
+        "query_ctorUnknown": {
+         "type": "string",
+         "description": "query parameter: ctorUnknown"
+        },
+        "query_ctorLower": {
+         "type": "string",
+         "description": "query parameter: ctorLower"
+        },
+        "query_ctorNoSpace": {
+         "type": "string",
+         "description": "query parameter: ctorNoSpace"
+        },
+        "query_class": {
+         "type": "string",
+         "description": "query parameter: class"
+        },
+        "query_list": {
+         "type": [
+          "string",
+          "null"
+         ],
+         "description": "query parameter: list"
+        },
+        "query_listMixed": {
+         "type": [
+          "number",
+          "boolean"
+         ],
+         "description": "query parameter: listMixed"
+        },
+        "query_listBad": {
+         "type": "string",
+         "description": "query parameter: listBad"
+        },
+        "query_listEmpty": {
+         "type": "string",
+         "description": "query parameter: listEmpty"
+        },
+        "query_listNested": {
+         "type": "string",
+         "description": "query parameter: listNested"
+        },
+        "query_bogus": {
+         "type": "string",
+         "description": "query parameter: bogus"
+        },
+        "query_number": {
+         "type": "string",
+         "description": "query parameter: number"
+        },
+        "query_bool": {
+         "type": "string",
+         "description": "query parameter: bool"
+        },
+        "query_object": {
+         "type": "string",
+         "description": "query parameter: object"
+        },
+        "query_null": {
+         "type": "string",
+         "description": "query parameter: null"
+        },
+        "query_noType": {
+         "type": "string",
+         "description": "query parameter: noType"
+        },
+        "query_noSchema": {
+         "type": "string",
+         "description": "query parameter: noSchema"
+        },
+        "query_withEnum": {
+         "type": "string",
+         "description": "query parameter: withEnum",
+         "enum": [
+          "a",
+          "b"
+         ]
+        },
+        "query_emptyEnum": {
+         "type": "string",
+         "description": "query parameter: emptyEnum",
+         "enum": []
+        },
+        "query_stringEnum": {
+         "type": "string",
+         "description": "query parameter: stringEnum",
+         "enum": "abc"
+        },
+        "query_zeroEnum": {
+         "type": "number",
+         "description": "query parameter: zeroEnum"
+        },
+        "query_described": {
+         "type": "string",
+         "description": "A thing"
+        },
+        "query_emptyDescription": {
+         "type": "string",
+         "description": "query parameter: emptyDescription"
+        },
+        "path_req": {
+         "type": "number",
+         "description": "again"
+        },
+        "header_reqTruthy": {
+         "type": "string",
+         "description": "header parameter: reqTruthy"
+        },
+        "header_reqFalse": {
+         "type": "string",
+         "description": "header parameter: reqFalse"
+        },
+        "cookie_cookie": {
+         "type": "string",
+         "description": "cookie parameter: cookie"
+        },
+        "undefined_noIn": {
+         "type": "string",
+         "description": "undefined parameter: noIn"
+        },
+        "query_undefined": {
+         "type": "string",
+         "description": "query parameter: undefined"
+        },
+        "undefined_undefined": {
+         "type": "string",
+         "description": "undefined parameter: undefined"
+        }
+       },
+       "required": [
+        "path_req",
+        "header_reqTruthy",
+        "path_req"
+       ]
+      }
+     },
+     {
+      "name": "t_noParameters",
+      "description": "GET /no-parameters",
+      "serviceName": "t",
+      "httpMethod": "GET",
+      "path": "/no-parameters",
+      "inputSchema": {
+       "type": "object",
+       "properties": {}
+      }
+     },
+     {
+      "name": "t_emptyParameters",
+      "description": "GET /empty-parameters",
+      "serviceName": "t",
+      "httpMethod": "GET",
+      "path": "/empty-parameters",
+      "inputSchema": {
+       "type": "object",
+       "properties": {}
+      }
+     }
+    ],
+    "warnings": [
+     "Unmappable type \"function Whatever() { [native code] }\" for parameter \"query.ctorUnknown\" (t get /types); defaulting to \"string\".",
+     "Unmappable type \"function string() {}\" for parameter \"query.ctorLower\" (t get /types); defaulting to \"string\".",
+     "Unmappable type \"functionString() {}\" for parameter \"query.ctorNoSpace\" (t get /types); defaulting to \"string\".",
+     "Unmappable type \"class String {}\" for parameter \"query.class\" (t get /types); defaulting to \"string\".",
+     "Unmappable type \"bogus\" for parameter \"query.listBad\" (t get /types); defaulting to \"string\".",
+     "Unmappable type \"\" for parameter \"query.listEmpty\" (t get /types); defaulting to \"string\".",
+     "Unmappable type \"string\" for parameter \"query.listNested\" (t get /types); defaulting to \"string\".",
+     "Unmappable type \"bogus\" for parameter \"query.bogus\" (t get /types); defaulting to \"string\".",
+     "Unmappable type \"42\" for parameter \"query.number\" (t get /types); defaulting to \"string\".",
+     "Unmappable type \"true\" for parameter \"query.bool\" (t get /types); defaulting to \"string\".",
+     "Unmappable type \"[object Object]\" for parameter \"query.object\" (t get /types); defaulting to \"string\"."
+    ]
+   }
+  },
+  {
+   "name": "bodies",
+   "services": {
+    "b": {
+     "openapi": "3.0.0",
+     "info": {
+      "title": "t",
+      "version": "1"
+     },
+     "paths": {
+      "/required": {
+       "post": {
+        "responses": {
+         "200": {
+          "description": ""
+         }
+        },
+        "operationId": "required",
+        "requestBody": {
+         "required": true,
+         "description": "Payload",
+         "content": {
+          "application/json": {
+           "schema": {
+            "$ref": "#/components/schemas/Person"
+           }
+          }
+         }
+        }
+       }
+      },
+      "/optional": {
+       "post": {
+        "responses": {
+         "200": {
+          "description": ""
+         }
+        },
+        "operationId": "optional",
+        "requestBody": {
+         "content": {
+          "application/json": {
+           "schema": {
+            "type": "object"
+           }
+          }
+         }
+        }
+       }
+      },
+      "/array": {
+       "put": {
+        "responses": {
+         "200": {
+          "description": ""
+         }
+        },
+        "operationId": "array",
+        "requestBody": {
+         "description": "",
+         "content": {
+          "application/json": {
+           "schema": {
+            "type": "array",
+            "items": {
+             "$ref": "#/components/schemas/Tag"
+            }
+           }
+          }
+         }
+        }
+       }
+      },
+      "/described-schema": {
+       "patch": {
+        "responses": {
+         "200": {
+          "description": ""
+         }
+        },
+        "operationId": "describedSchema",
+        "requestBody": {
+         "description": "outer",
+         "content": {
+          "application/json": {
+           "schema": {
+            "description": "inner",
+            "properties": {
+             "a": {
+              "type": "string"
+             }
+            }
+           }
+          }
+         }
+        }
+       }
+      },
+      "/no-type": {
+       "post": {
+        "responses": {
+         "200": {
+          "description": ""
+         }
+        },
+        "operationId": "noType",
+        "requestBody": {
+         "content": {
+          "application/json": {
+           "schema": {
+            "properties": {
+             "a": {
+              "type": "Number"
+             }
+            }
+           }
+          }
+         }
+        }
+       }
+      },
+      "/form-only": {
+       "post": {
+        "responses": {
+         "200": {
+          "description": ""
+         }
+        },
+        "operationId": "formOnly",
+        "requestBody": {
+         "required": true,
+         "content": {
+          "application/x-www-form-urlencoded": {
+           "schema": {
+            "type": "object"
+           }
+          }
+         }
+        }
+       }
+      },
+      "/json-charset": {
+       "post": {
+        "responses": {
+         "200": {
+          "description": ""
+         }
+        },
+        "operationId": "jsonCharset",
+        "requestBody": {
+         "content": {
+          "application/json; charset=utf-8": {
+           "schema": {
+            "type": "object"
+           }
+          }
+         }
+        }
+       }
+      },
+      "/no-schema": {
+       "post": {
+        "responses": {
+         "200": {
+          "description": ""
+         }
+        },
+        "operationId": "noSchema",
+        "requestBody": {
+         "required": true,
+         "content": {
+          "application/json": {}
+         }
+        }
+       }
+      },
+      "/no-content": {
+       "post": {
+        "responses": {
+         "200": {
+          "description": ""
+         }
+        },
+        "operationId": "noContent",
+        "requestBody": {
+         "required": true
+        }
+       }
+      },
+      "/unresolvable": {
+       "post": {
+        "responses": {
+         "200": {
+          "description": ""
+         }
+        },
+        "operationId": "unresolvable",
+        "requestBody": {
+         "content": {
+          "application/json": {
+           "schema": {
+            "$ref": "#/components/schemas/Missing"
+           }
+          }
+         }
+        }
+       }
+      },
+      "/with-params": {
+       "post": {
+        "responses": {
+         "200": {
+          "description": ""
+         }
+        },
+        "operationId": "withParams",
+        "parameters": [
+         {
+          "in": "path",
+          "name": "id",
+          "schema": {
+           "type": "string"
+          },
+          "required": true
+         }
+        ],
+        "requestBody": {
+         "required": true,
+         "content": {
+          "application/json": {
+           "schema": {
+            "type": "string",
+            "enum": [
+             "x"
+            ]
+           }
+          }
+         }
+        }
+       }
+      },
+      "/body-param-clash": {
+       "post": {
+        "responses": {
+         "200": {
+          "description": ""
+         }
+        },
+        "operationId": "bodyParamClash",
+        "parameters": [
+         {
+          "in": "body",
+          "name": "",
+          "schema": {
+           "type": "number"
+          }
+         }
+        ],
+        "requestBody": {
+         "content": {
+          "application/json": {
+           "schema": {
+            "type": "boolean"
+           }
+          }
+         }
+        }
+       }
+      },
+      "/get-with-body": {
+       "get": {
+        "responses": {
+         "200": {
+          "description": ""
+         }
+        },
+        "operationId": "getWithBody",
+        "requestBody": {
+         "content": {
+          "application/json": {
+           "schema": {
+            "type": "object"
+           }
+          }
+         }
+        }
+       }
+      }
+     },
+     "components": {
+      "schemas": {
+       "Person": {
+        "type": "object",
+        "required": [
+         "name"
+        ],
+        "properties": {
+         "name": {
+          "type": "string",
+          "description": "Name"
+         },
+         "home": {
+          "$ref": "#/components/schemas/Address"
+         },
+         "work": {
+          "$ref": "#/components/schemas/Address"
+         },
+         "tags": {
+          "type": "array",
+          "items": {
+           "$ref": "#/components/schemas/Tag"
+          }
+         },
+         "friend": {
+          "$ref": "#/components/schemas/Person"
+         },
+         "friends": {
+          "type": "array",
+          "items": {
+           "$ref": "#/components/schemas/Person"
+          }
+         },
+         "choice": {
+          "oneOf": [
+           {
+            "$ref": "#/components/schemas/Tag"
+           },
+           {
+            "type": "string"
+           }
+          ]
+         },
+         "all": {
+          "allOf": [
+           {
+            "$ref": "#/components/schemas/Address"
+           }
+          ]
+         },
+         "map": {
+          "type": "object",
+          "additionalProperties": {
+           "$ref": "#/components/schemas/Tag"
+          }
+         }
+        }
+       },
+       "Address": {
+        "type": "object",
+        "properties": {
+         "street": {
+          "type": "String"
+         },
+         "geo": {
+          "$ref": "#/components/schemas/Geo"
+         }
+        }
+       },
+       "Geo": {
+        "type": "object",
+        "properties": {
+         "lat": {
+          "type": "number"
+         },
+         "lng": {
+          "type": "number"
+         }
+        }
+       },
+       "Tag": {
+        "type": "string",
+        "enum": [
+         "a",
+         "b"
+        ]
+       }
+      }
+     }
+    }
+   },
+   "reference": {
+    "tools": [
+     {
+      "name": "b_getWithBody",
+      "description": "GET /get-with-body",
+      "serviceName": "b",
+      "httpMethod": "GET",
+      "path": "/get-with-body",
+      "inputSchema": {
+       "type": "object",
+       "properties": {
+        "body": {
+         "type": "object",
+         "description": "Request body"
+        }
+       }
+      }
+     },
+     {
+      "name": "b_required",
+      "description": "POST /required",
+      "serviceName": "b",
+      "httpMethod": "POST",
+      "path": "/required",
+      "inputSchema": {
+       "type": "object",
+       "properties": {
+        "body": {
+         "type": "object",
+         "description": "Payload",
+         "required": [
+          "name"
+         ],
+         "properties": {
+          "name": {
+           "type": "string",
+           "description": "Name"
+          },
+          "home": {
+           "type": "object",
+           "properties": {
+            "street": {
+             "type": "string"
+            },
+            "geo": {
+             "type": "object",
+             "properties": {
+              "lat": {
+               "type": "number"
+              },
+              "lng": {
+               "type": "number"
+              }
+             }
+            }
+           }
+          },
+          "work": {},
+          "tags": {
+           "type": "array",
+           "items": {
+            "type": "string",
+            "enum": [
+             "a",
+             "b"
+            ]
+           }
+          },
+          "friend": {},
+          "friends": {
+           "type": "array",
+           "items": {}
+          },
+          "choice": {
+           "oneOf": [
+            {
+             "$ref": "#/components/schemas/Tag"
+            },
+            {
+             "type": "string"
+            }
+           ]
+          },
+          "all": {
+           "allOf": [
+            {
+             "$ref": "#/components/schemas/Address"
+            }
+           ]
+          },
+          "map": {
+           "type": "object",
+           "additionalProperties": {
+            "$ref": "#/components/schemas/Tag"
+           }
+          }
+         }
+        }
+       },
+       "required": [
+        "body"
+       ]
+      }
+     },
+     {
+      "name": "b_optional",
+      "description": "POST /optional",
+      "serviceName": "b",
+      "httpMethod": "POST",
+      "path": "/optional",
+      "inputSchema": {
+       "type": "object",
+       "properties": {
+        "body": {
+         "type": "object",
+         "description": "Request body"
+        }
+       }
+      }
+     },
+     {
+      "name": "b_noType",
+      "description": "POST /no-type",
+      "serviceName": "b",
+      "httpMethod": "POST",
+      "path": "/no-type",
+      "inputSchema": {
+       "type": "object",
+       "properties": {
+        "body": {
+         "type": "object",
+         "description": "Request body",
+         "properties": {
+          "a": {
+           "type": "number"
+          }
+         }
+        }
+       }
+      }
+     },
+     {
+      "name": "b_formOnly",
+      "description": "POST /form-only",
+      "serviceName": "b",
+      "httpMethod": "POST",
+      "path": "/form-only",
+      "inputSchema": {
+       "type": "object",
+       "properties": {}
+      }
+     },
+     {
+      "name": "b_jsonCharset",
+      "description": "POST /json-charset",
+      "serviceName": "b",
+      "httpMethod": "POST",
+      "path": "/json-charset",
+      "inputSchema": {
+       "type": "object",
+       "properties": {}
+      }
+     },
+     {
+      "name": "b_noSchema",
+      "description": "POST /no-schema",
+      "serviceName": "b",
+      "httpMethod": "POST",
+      "path": "/no-schema",
+      "inputSchema": {
+       "type": "object",
+       "properties": {}
+      }
+     },
+     {
+      "name": "b_noContent",
+      "description": "POST /no-content",
+      "serviceName": "b",
+      "httpMethod": "POST",
+      "path": "/no-content",
+      "inputSchema": {
+       "type": "object",
+       "properties": {}
+      }
+     },
+     {
+      "name": "b_unresolvable",
+      "description": "POST /unresolvable",
+      "serviceName": "b",
+      "httpMethod": "POST",
+      "path": "/unresolvable",
+      "inputSchema": {
+       "type": "object",
+       "properties": {
+        "body": {
+         "type": "object",
+         "description": "Request body"
+        }
+       }
+      }
+     },
+     {
+      "name": "b_withParams",
+      "description": "POST /with-params",
+      "serviceName": "b",
+      "httpMethod": "POST",
+      "path": "/with-params",
+      "inputSchema": {
+       "type": "object",
+       "properties": {
+        "path_id": {
+         "type": "string",
+         "description": "path parameter: id"
+        },
+        "body": {
+         "type": "string",
+         "description": "Request body",
+         "enum": [
+          "x"
+         ]
+        }
+       },
+       "required": [
+        "path_id",
+        "body"
+       ]
+      }
+     },
+     {
+      "name": "b_bodyParamClash",
+      "description": "POST /body-param-clash",
+      "serviceName": "b",
+      "httpMethod": "POST",
+      "path": "/body-param-clash",
+      "inputSchema": {
+       "type": "object",
+       "properties": {
+        "body_": {
+         "type": "number",
+         "description": "body parameter: "
+        },
+        "body": {
+         "type": "boolean",
+         "description": "Request body"
+        }
+       }
+      }
+     },
+     {
+      "name": "b_describedSchema",
+      "description": "PATCH /described-schema",
+      "serviceName": "b",
+      "httpMethod": "PATCH",
+      "path": "/described-schema",
+      "inputSchema": {
+       "type": "object",
+       "properties": {
+        "body": {
+         "type": "object",
+         "description": "inner",
+         "properties": {
+          "a": {
+           "type": "string"
+          }
+         }
+        }
+       }
+      }
+     },
+     {
+      "name": "b_array",
+      "description": "PUT /array",
+      "serviceName": "b",
+      "httpMethod": "PUT",
+      "path": "/array",
+      "inputSchema": {
+       "type": "object",
+       "properties": {
+        "body": {
+         "type": "array",
+         "description": "Request body",
+         "items": {
+          "type": "string",
+          "enum": [
+           "a",
+           "b"
+          ]
+         }
+        }
+       }
+      }
+     }
+    ],
+    "warnings": []
+   },
+   "d8": {
+    "tools": [
+     {
+      "name": "b_getWithBody",
+      "description": "GET /get-with-body",
+      "serviceName": "b",
+      "httpMethod": "GET",
+      "path": "/get-with-body",
+      "inputSchema": {
+       "type": "object",
+       "properties": {
+        "body": {
+         "type": "object",
+         "description": "Request body"
+        }
+       }
+      }
+     },
+     {
+      "name": "b_required",
+      "description": "POST /required",
+      "serviceName": "b",
+      "httpMethod": "POST",
+      "path": "/required",
+      "inputSchema": {
+       "type": "object",
+       "properties": {
+        "body": {
+         "type": "object",
+         "description": "Payload",
+         "required": [
+          "name"
+         ],
+         "properties": {
+          "name": {
+           "type": "string",
+           "description": "Name"
+          },
+          "home": {
+           "type": "object",
+           "properties": {
+            "street": {
+             "type": "string"
+            },
+            "geo": {
+             "type": "object",
+             "properties": {
+              "lat": {
+               "type": "number"
+              },
+              "lng": {
+               "type": "number"
+              }
+             }
+            }
+           }
+          },
+          "work": {
+           "type": "object",
+           "properties": {
+            "street": {
+             "type": "string"
+            },
+            "geo": {
+             "type": "object",
+             "properties": {
+              "lat": {
+               "type": "number"
+              },
+              "lng": {
+               "type": "number"
+              }
+             }
+            }
+           }
+          },
+          "tags": {
+           "type": "array",
+           "items": {
+            "type": "string",
+            "enum": [
+             "a",
+             "b"
+            ]
+           }
+          },
+          "friend": {},
+          "friends": {
+           "type": "array",
+           "items": {}
+          },
+          "choice": {
+           "oneOf": [
+            {
+             "$ref": "#/components/schemas/Tag"
+            },
+            {
+             "type": "string"
+            }
+           ]
+          },
+          "all": {
+           "allOf": [
+            {
+             "$ref": "#/components/schemas/Address"
+            }
+           ]
+          },
+          "map": {
+           "type": "object",
+           "additionalProperties": {
+            "$ref": "#/components/schemas/Tag"
+           }
+          }
+         }
+        }
+       },
+       "required": [
+        "body"
+       ]
+      }
+     },
+     {
+      "name": "b_optional",
+      "description": "POST /optional",
+      "serviceName": "b",
+      "httpMethod": "POST",
+      "path": "/optional",
+      "inputSchema": {
+       "type": "object",
+       "properties": {
+        "body": {
+         "type": "object",
+         "description": "Request body"
+        }
+       }
+      }
+     },
+     {
+      "name": "b_noType",
+      "description": "POST /no-type",
+      "serviceName": "b",
+      "httpMethod": "POST",
+      "path": "/no-type",
+      "inputSchema": {
+       "type": "object",
+       "properties": {
+        "body": {
+         "type": "object",
+         "description": "Request body",
+         "properties": {
+          "a": {
+           "type": "number"
+          }
+         }
+        }
+       }
+      }
+     },
+     {
+      "name": "b_formOnly",
+      "description": "POST /form-only",
+      "serviceName": "b",
+      "httpMethod": "POST",
+      "path": "/form-only",
+      "inputSchema": {
+       "type": "object",
+       "properties": {}
+      }
+     },
+     {
+      "name": "b_jsonCharset",
+      "description": "POST /json-charset",
+      "serviceName": "b",
+      "httpMethod": "POST",
+      "path": "/json-charset",
+      "inputSchema": {
+       "type": "object",
+       "properties": {}
+      }
+     },
+     {
+      "name": "b_noSchema",
+      "description": "POST /no-schema",
+      "serviceName": "b",
+      "httpMethod": "POST",
+      "path": "/no-schema",
+      "inputSchema": {
+       "type": "object",
+       "properties": {}
+      }
+     },
+     {
+      "name": "b_noContent",
+      "description": "POST /no-content",
+      "serviceName": "b",
+      "httpMethod": "POST",
+      "path": "/no-content",
+      "inputSchema": {
+       "type": "object",
+       "properties": {}
+      }
+     },
+     {
+      "name": "b_unresolvable",
+      "description": "POST /unresolvable",
+      "serviceName": "b",
+      "httpMethod": "POST",
+      "path": "/unresolvable",
+      "inputSchema": {
+       "type": "object",
+       "properties": {
+        "body": {
+         "type": "object",
+         "description": "Request body"
+        }
+       }
+      }
+     },
+     {
+      "name": "b_withParams",
+      "description": "POST /with-params",
+      "serviceName": "b",
+      "httpMethod": "POST",
+      "path": "/with-params",
+      "inputSchema": {
+       "type": "object",
+       "properties": {
+        "path_id": {
+         "type": "string",
+         "description": "path parameter: id"
+        },
+        "body": {
+         "type": "string",
+         "description": "Request body",
+         "enum": [
+          "x"
+         ]
+        }
+       },
+       "required": [
+        "path_id",
+        "body"
+       ]
+      }
+     },
+     {
+      "name": "b_bodyParamClash",
+      "description": "POST /body-param-clash",
+      "serviceName": "b",
+      "httpMethod": "POST",
+      "path": "/body-param-clash",
+      "inputSchema": {
+       "type": "object",
+       "properties": {
+        "body_": {
+         "type": "number",
+         "description": "body parameter: "
+        },
+        "body": {
+         "type": "boolean",
+         "description": "Request body"
+        }
+       }
+      }
+     },
+     {
+      "name": "b_describedSchema",
+      "description": "PATCH /described-schema",
+      "serviceName": "b",
+      "httpMethod": "PATCH",
+      "path": "/described-schema",
+      "inputSchema": {
+       "type": "object",
+       "properties": {
+        "body": {
+         "type": "object",
+         "description": "inner",
+         "properties": {
+          "a": {
+           "type": "string"
+          }
+         }
+        }
+       }
+      }
+     },
+     {
+      "name": "b_array",
+      "description": "PUT /array",
+      "serviceName": "b",
+      "httpMethod": "PUT",
+      "path": "/array",
+      "inputSchema": {
+       "type": "object",
+       "properties": {
+        "body": {
+         "type": "array",
+         "description": "Request body",
+         "items": {
+          "type": "string",
+          "enum": [
+           "a",
+           "b"
+          ]
+         }
+        }
+       }
+      }
+     }
+    ],
+    "warnings": []
+   }
+  },
+  {
+   "name": "refs",
+   "services": {
+    "r": {
+     "openapi": "3.0.0",
+     "info": {
+      "title": "t",
+      "version": "1"
+     },
+     "paths": {
+      "/refs": {
+       "post": {
+        "responses": {
+         "200": {
+          "description": ""
+         }
+        },
+        "operationId": "refs",
+        "requestBody": {
+         "content": {
+          "application/json": {
+           "schema": {
+            "type": "object",
+            "properties": {
+             "2": {
+              "type": "string"
+             },
+             "10": {
+              "type": "string"
+             },
+             "siblings1": {
+              "$ref": "#/components/schemas/Leaf"
+             },
+             "siblings2": {
+              "$ref": "#/components/schemas/Leaf"
+             },
+             "chain": {
+              "$ref": "#/components/schemas/A"
+             },
+             "direct": {
+              "$ref": "#/components/schemas/C"
+             },
+             "selfCycle": {
+              "$ref": "#/components/schemas/Self"
+             },
+             "mutual": {
+              "$ref": "#/components/schemas/Ping"
+             },
+             "withSiblings": {
+              "$ref": "#/components/schemas/Leaf",
+              "description": "ignored",
+              "type": "number"
+             },
+             "toString": {
+              "$ref": "#/components/schemas/AString"
+             },
+             "toNumber": {
+              "$ref": "#/components/schemas/ANumber"
+             },
+             "toArray": {
+              "$ref": "#/components/schemas/AnArray"
+             },
+             "toTrue": {
+              "$ref": "#/components/schemas/ATrue"
+             },
+             "toNull": {
+              "$ref": "#/components/schemas/ANull"
+             },
+             "hash": {
+              "$ref": "#"
+             },
+             "hashSlash": {
+              "$ref": "#/"
+             },
+             "external": {
+              "$ref": "other.json#/components/schemas/Leaf"
+             },
+             "pointerEscape": {
+              "$ref": "#/components/schemas/A~1B"
+             },
+             "encoded": {
+              "$ref": "#/components/schemas/With%20Space"
+             },
+             "spaced": {
+              "$ref": "#/components/schemas/With Space"
+             },
+             "deep": {
+              "$ref": "#/components/schemas/Leaf/properties/x"
+             },
+             "emptyRef": {
+              "$ref": ""
+             },
+             "stringProperty": "abc",
+             "unicodeString": "hé",
+             "arrayProperty": [
+              1,
+              {
+               "type": "String"
+              }
+             ],
+             "numberProperty": 7,
+             "emptyArrayItems": {
+              "type": "array",
+              "items": []
+             },
+             "falseItems": {
+              "type": "array",
+              "items": false
+             },
+             "itemsAndProperties": {
+              "type": "object",
+              "properties": {
+               "p": {
+                "$ref": "#/components/schemas/Leaf"
+               }
+              },
+              "items": {
+               "$ref": "#/components/schemas/Leaf"
+              }
+             },
+             "nullType": {
+              "type": null,
+              "description": "n"
+             },
+             "badType": {
+              "type": "bogus",
+              "description": "b"
+             },
+             "ctorType": {
+              "type": "function Boolean() { [native code] }"
+             },
+             "listType": {
+              "type": [
+               "Integer",
+               "bogus"
+              ]
+             },
+             "nestedCtor": {
+              "type": "function Object() {}",
+              "properties": {
+               "q": {
+                "type": "BOOLEAN"
+               }
+              }
+             },
+             "itemsCtor": {
+              "type": "function Array() {}",
+              "items": {
+               "type": "function Date() {}"
+              }
+             },
+             "emptyProperties": {
+              "type": "object",
+              "properties": {}
+             }
+            }
+           }
+          }
+         }
+        }
+       }
+      }
+     },
+     "components": {
+      "schemas": {
+       "Leaf": {
+        "type": "object",
+        "properties": {
+         "x": {
+          "type": "integer"
+         }
+        }
+       },
+       "A": {
+        "type": "object",
+        "properties": {
+         "b": {
+          "$ref": "#/components/schemas/B"
+         }
+        }
+       },
+       "B": {
+        "type": "object",
+        "properties": {
+         "c": {
+          "$ref": "#/components/schemas/C"
+         }
+        }
+       },
+       "C": {
+        "type": "object",
+        "properties": {
+         "leaf": {
+          "$ref": "#/components/schemas/Leaf"
+         }
+        }
+       },
+       "Self": {
+        "type": "object",
+        "properties": {
+         "me": {
+          "$ref": "#/components/schemas/Self"
+         },
+         "x": {
+          "type": "string"
+         }
+        }
+       },
+       "Ping": {
+        "type": "object",
+        "properties": {
+         "pong": {
+          "$ref": "#/components/schemas/Pong"
+         }
+        }
+       },
+       "Pong": {
+        "type": "object",
+        "properties": {
+         "ping": {
+          "$ref": "#/components/schemas/Ping"
+         }
+        }
+       },
+       "AString": "xyz",
+       "ANumber": 5,
+       "AnArray": [
+        "p",
+        {
+         "type": "string"
+        }
+       ],
+       "ATrue": true,
+       "ANull": null,
+       "A~1B": {
+        "type": "string",
+        "description": "escaped"
+       },
+       "A/B": {
+        "type": "string",
+        "description": "slash"
+       },
+       "With Space": {
+        "type": "string",
+        "description": "space"
+       }
+      }
+     }
+    }
+   },
+   "reference": {
+    "tools": [
+     {
+      "name": "r_refs",
+      "description": "POST /refs",
+      "serviceName": "r",
+      "httpMethod": "POST",
+      "path": "/refs",
+      "inputSchema": {
+       "type": "object",
+       "properties": {
+        "body": {
+         "type": "object",
+         "description": "Request body",
+         "properties": {
+          "2": {
+           "type": "string"
+          },
+          "10": {
+           "type": "string"
+          },
+          "siblings1": {
+           "type": "object",
+           "properties": {
+            "x": {
+             "type": "integer"
+            }
+           }
+          },
+          "siblings2": {},
+          "chain": {
+           "type": "object",
+           "properties": {
+            "b": {
+             "type": "object",
+             "properties": {
+              "c": {
+               "type": "object",
+               "properties": {
+                "leaf": {}
+               }
+              }
+             }
+            }
+           }
+          },
+          "direct": {},
+          "selfCycle": {
+           "type": "object",
+           "properties": {
+            "me": {},
+            "x": {
+             "type": "string"
+            }
+           }
+          },
+          "mutual": {
+           "type": "object",
+           "properties": {
+            "pong": {
+             "type": "object",
+             "properties": {
+              "ping": {}
+             }
+            }
+           }
+          },
+          "withSiblings": {},
+          "toString": {
+           "0": "x",
+           "1": "y",
+           "2": "z"
+          },
+          "toNumber": {},
+          "toArray": {
+           "0": "p",
+           "1": {
+            "type": "string"
+           }
+          },
+          "toTrue": {},
+          "toNull": {},
+          "hash": {},
+          "hashSlash": {},
+          "external": {},
+          "pointerEscape": {
+           "type": "string",
+           "description": "escaped"
+          },
+          "encoded": {},
+          "spaced": {
+           "type": "string",
+           "description": "space"
+          },
+          "deep": {
+           "type": "integer"
+          },
+          "emptyRef": {
+           "$ref": ""
+          },
+          "stringProperty": {
+           "0": "a",
+           "1": "b",
+           "2": "c"
+          },
+          "unicodeString": {
+           "0": "h",
+           "1": "é"
+          },
+          "arrayProperty": {
+           "0": 1,
+           "1": {
+            "type": "String"
+           }
+          },
+          "numberProperty": {},
+          "emptyArrayItems": {
+           "type": "array",
+           "items": {}
+          },
+          "falseItems": {
+           "type": "array",
+           "items": false
+          },
+          "itemsAndProperties": {
+           "type": "object",
+           "properties": {
+            "p": {}
+           },
+           "items": {
+            "$ref": "#/components/schemas/Leaf"
+           }
+          },
+          "nullType": {
+           "description": "n"
+          },
+          "badType": {
+           "description": "b"
+          },
+          "ctorType": {
+           "type": "boolean"
+          },
+          "listType": {
+           "type": [
+            "integer"
+           ]
+          },
+          "nestedCtor": {
+           "type": "object",
+           "properties": {
+            "q": {
+             "type": "boolean"
+            }
+           }
+          },
+          "itemsCtor": {
+           "type": "array",
+           "items": {
+            "type": "string"
+           }
+          },
+          "emptyProperties": {
+           "type": "object",
+           "properties": {}
+          }
+         }
+        }
+       }
+      }
+     }
+    ],
+    "warnings": [
+     "Dropping unmappable schema type \"bogus\" while building MCP input schema."
+    ]
+   },
+   "d8": {
+    "tools": [
+     {
+      "name": "r_refs",
+      "description": "POST /refs",
+      "serviceName": "r",
+      "httpMethod": "POST",
+      "path": "/refs",
+      "inputSchema": {
+       "type": "object",
+       "properties": {
+        "body": {
+         "type": "object",
+         "description": "Request body",
+         "properties": {
+          "2": {
+           "type": "string"
+          },
+          "10": {
+           "type": "string"
+          },
+          "siblings1": {
+           "type": "object",
+           "properties": {
+            "x": {
+             "type": "integer"
+            }
+           }
+          },
+          "siblings2": {
+           "type": "object",
+           "properties": {
+            "x": {
+             "type": "integer"
+            }
+           }
+          },
+          "chain": {
+           "type": "object",
+           "properties": {
+            "b": {
+             "type": "object",
+             "properties": {
+              "c": {
+               "type": "object",
+               "properties": {
+                "leaf": {
+                 "type": "object",
+                 "properties": {
+                  "x": {
+                   "type": "integer"
+                  }
+                 }
+                }
+               }
+              }
+             }
+            }
+           }
+          },
+          "direct": {
+           "type": "object",
+           "properties": {
+            "leaf": {
+             "type": "object",
+             "properties": {
+              "x": {
+               "type": "integer"
+              }
+             }
+            }
+           }
+          },
+          "selfCycle": {
+           "type": "object",
+           "properties": {
+            "me": {},
+            "x": {
+             "type": "string"
+            }
+           }
+          },
+          "mutual": {
+           "type": "object",
+           "properties": {
+            "pong": {
+             "type": "object",
+             "properties": {
+              "ping": {}
+             }
+            }
+           }
+          },
+          "withSiblings": {
+           "type": "object",
+           "properties": {
+            "x": {
+             "type": "integer"
+            }
+           }
+          },
+          "toString": {
+           "0": "x",
+           "1": "y",
+           "2": "z"
+          },
+          "toNumber": {},
+          "toArray": {
+           "0": "p",
+           "1": {
+            "type": "string"
+           }
+          },
+          "toTrue": {},
+          "toNull": {},
+          "hash": {},
+          "hashSlash": {},
+          "external": {},
+          "pointerEscape": {
+           "type": "string",
+           "description": "escaped"
+          },
+          "encoded": {},
+          "spaced": {
+           "type": "string",
+           "description": "space"
+          },
+          "deep": {
+           "type": "integer"
+          },
+          "emptyRef": {
+           "$ref": ""
+          },
+          "stringProperty": {
+           "0": "a",
+           "1": "b",
+           "2": "c"
+          },
+          "unicodeString": {
+           "0": "h",
+           "1": "é"
+          },
+          "arrayProperty": {
+           "0": 1,
+           "1": {
+            "type": "String"
+           }
+          },
+          "numberProperty": {},
+          "emptyArrayItems": {
+           "type": "array",
+           "items": {}
+          },
+          "falseItems": {
+           "type": "array",
+           "items": false
+          },
+          "itemsAndProperties": {
+           "type": "object",
+           "properties": {
+            "p": {
+             "type": "object",
+             "properties": {
+              "x": {
+               "type": "integer"
+              }
+             }
+            }
+           },
+           "items": {
+            "$ref": "#/components/schemas/Leaf"
+           }
+          },
+          "nullType": {
+           "description": "n"
+          },
+          "badType": {
+           "description": "b"
+          },
+          "ctorType": {
+           "type": "boolean"
+          },
+          "listType": {
+           "type": [
+            "integer"
+           ]
+          },
+          "nestedCtor": {
+           "type": "object",
+           "properties": {
+            "q": {
+             "type": "boolean"
+            }
+           }
+          },
+          "itemsCtor": {
+           "type": "array",
+           "items": {
+            "type": "string"
+           }
+          },
+          "emptyProperties": {
+           "type": "object",
+           "properties": {}
+          }
+         }
+        }
+       }
+      }
+     }
+    ],
+    "warnings": [
+     "Dropping unmappable schema type \"bogus\" while building MCP input schema."
+    ]
+   }
+  },
+  {
+   "name": "names",
+   "services": {
+    "n": {
+     "openapi": "3.0.0",
+     "info": {
+      "title": "t",
+      "version": "1"
+     },
+     "paths": {
+      "/": {
+       "get": {
+        "responses": {
+         "200": {
+          "description": ""
+         }
+        }
+       }
+      },
+      "/a//b": {
+       "get": {
+        "responses": {
+         "200": {
+          "description": ""
+         }
+        }
+       }
+      },
+      "/trailing/": {
+       "get": {
+        "responses": {
+         "200": {
+          "description": ""
+         }
+        }
+       }
+      },
+      "/x/{a}/y/{b}": {
+       "delete": {
+        "responses": {
+         "200": {
+          "description": ""
+         }
+        }
+       }
+      },
+      "/under__scores/{id}": {
+       "patch": {
+        "responses": {
+         "200": {
+          "description": ""
+         }
+        }
+       }
+      },
+      "/dots.and-dashes": {
+       "put": {
+        "responses": {
+         "200": {
+          "description": ""
+         }
+        }
+       }
+      },
+      "/empty-operation-id": {
+       "get": {
+        "responses": {
+         "200": {
+          "description": ""
+         }
+        },
+        "operationId": ""
+       }
+      },
+      "/described": {
+       "get": {
+        "responses": {
+         "200": {
+          "description": ""
+         }
+        },
+        "operationId": "described",
+        "description": "Says something"
+       }
+      },
+      "/very/long/path/that/goes/on/and/on/for/many/segments/beyond/the/limit": {
+       "post": {
+        "responses": {
+         "200": {
+          "description": ""
+         }
+        }
+       }
+      },
+      "/long": {
+       "get": {
+        "responses": {
+         "200": {
+          "description": ""
+         }
+        },
+        "operationId": "anOperationIdThatIsLongEnoughToPushTheToolNameBeyondSixtyFourCharacters"
+       }
+      },
+      "/duplicate/one": {
+       "get": {
+        "responses": {
+         "200": {
+          "description": ""
+         }
+        },
+        "operationId": "dup"
+       }
+      },
+      "/duplicate/two": {
+       "get": {
+        "responses": {
+         "200": {
+          "description": ""
+         }
+        },
+        "operationId": "dup"
+       }
+      },
+      "/methods": {
+       "options": {
+        "responses": {
+         "200": {
+          "description": ""
+         }
+        }
+       },
+       "head": {
+        "responses": {
+         "200": {
+          "description": ""
+         }
+        },
+        "operationId": "headOp"
+       },
+       "search": {
+        "responses": {
+         "200": {
+          "description": ""
+         }
+        }
+       }
+      }
+     }
+    }
+   },
+   "reference": {
+    "tools": [
+     {
+      "name": "n_GET_",
+      "description": "GET /",
+      "serviceName": "n",
+      "httpMethod": "GET",
+      "path": "/",
+      "inputSchema": {
+       "type": "object",
+       "properties": {}
+      }
+     },
+     {
+      "name": "n_GET_a_b",
+      "description": "GET /a//b",
+      "serviceName": "n",
+      "httpMethod": "GET",
+      "path": "/a//b",
+      "inputSchema": {
+       "type": "object",
+       "properties": {}
+      }
+     },
+     {
+      "name": "n_GET_trailing",
+      "description": "GET /trailing/",
+      "serviceName": "n",
+      "httpMethod": "GET",
+      "path": "/trailing/",
+      "inputSchema": {
+       "type": "object",
+       "properties": {}
+      }
+     },
+     {
+      "name": "n_GET_empty-operation-id",
+      "description": "GET /empty-operation-id",
+      "serviceName": "n",
+      "httpMethod": "GET",
+      "path": "/empty-operation-id",
+      "inputSchema": {
+       "type": "object",
+       "properties": {}
+      }
+     },
+     {
+      "name": "n_described",
+      "description": "Says something",
+      "serviceName": "n",
+      "httpMethod": "GET",
+      "path": "/described",
+      "inputSchema": {
+       "type": "object",
+       "properties": {}
+      }
+     },
+     {
+      "name": "n_anOperationIdThatIsLongEnoughToPushTheToolNameBeyondSixtyFourCharacters",
+      "description": "GET /long",
+      "serviceName": "n",
+      "httpMethod": "GET",
+      "path": "/long",
+      "inputSchema": {
+       "type": "object",
+       "properties": {}
+      }
+     },
+     {
+      "name": "n_dup",
+      "description": "GET /duplicate/one",
+      "serviceName": "n",
+      "httpMethod": "GET",
+      "path": "/duplicate/one",
+      "inputSchema": {
+       "type": "object",
+       "properties": {}
+      }
+     },
+     {
+      "name": "n_dup",
+      "description": "GET /duplicate/two",
+      "serviceName": "n",
+      "httpMethod": "GET",
+      "path": "/duplicate/two",
+      "inputSchema": {
+       "type": "object",
+       "properties": {}
+      }
+     },
+     {
+      "name": "n_POST_very_long_path_that_goes_on_and_on_for_many_segments_beyond_the_limit",
+      "description": "POST /very/long/path/that/goes/on/and/on/for/many/segments/beyond/the/limit",
+      "serviceName": "n",
+      "httpMethod": "POST",
+      "path": "/very/long/path/that/goes/on/and/on/for/many/segments/beyond/the/limit",
+      "inputSchema": {
+       "type": "object",
+       "properties": {}
+      }
+     },
+     {
+      "name": "n_DELETE_x_a_y_b",
+      "description": "DELETE /x/{a}/y/{b}",
+      "serviceName": "n",
+      "httpMethod": "DELETE",
+      "path": "/x/{a}/y/{b}",
+      "inputSchema": {
+       "type": "object",
+       "properties": {}
+      }
+     },
+     {
+      "name": "n_PATCH_under_scores_id",
+      "description": "PATCH /under__scores/{id}",
+      "serviceName": "n",
+      "httpMethod": "PATCH",
+      "path": "/under__scores/{id}",
+      "inputSchema": {
+       "type": "object",
+       "properties": {}
+      }
+     },
+     {
+      "name": "n_PUT_dots.and-dashes",
+      "description": "PUT /dots.and-dashes",
+      "serviceName": "n",
+      "httpMethod": "PUT",
+      "path": "/dots.and-dashes",
+      "inputSchema": {
+       "type": "object",
+       "properties": {}
+      }
+     },
+     {
+      "name": "n_OPTIONS_methods",
+      "description": "OPTIONS /methods",
+      "serviceName": "n",
+      "httpMethod": "OPTIONS",
+      "path": "/methods",
+      "inputSchema": {
+       "type": "object",
+       "properties": {}
+      }
+     },
+     {
+      "name": "n_headOp",
+      "description": "HEAD /methods",
+      "serviceName": "n",
+      "httpMethod": "HEAD",
+      "path": "/methods",
+      "inputSchema": {
+       "type": "object",
+       "properties": {}
+      }
+     },
+     {
+      "name": "n_SEARCH_methods",
+      "description": "SEARCH /methods",
+      "serviceName": "n",
+      "httpMethod": "SEARCH",
+      "path": "/methods",
+      "inputSchema": {
+       "type": "object",
+       "properties": {}
+      }
+     }
+    ],
+    "warnings": [
+     "MCP tool name \"n_anOperationIdThatIsLongEnoughToPushTheToolNameBeyondSixtyFourCharacters\" is 73 characters, which exceeds the recommended maximum of 64.",
+     "MCP tool name \"n_POST_very_long_path_that_goes_on_and_on_for_many_segments_beyond_the_limit\" is 76 characters, which exceeds the recommended maximum of 64."
+    ]
+   },
+   "d8": {
+    "tools": [
+     {
+      "name": "n_GET_",
+      "description": "GET /",
+      "serviceName": "n",
+      "httpMethod": "GET",
+      "path": "/",
+      "inputSchema": {
+       "type": "object",
+       "properties": {}
+      }
+     },
+     {
+      "name": "n_GET_a_b",
+      "description": "GET /a//b",
+      "serviceName": "n",
+      "httpMethod": "GET",
+      "path": "/a//b",
+      "inputSchema": {
+       "type": "object",
+       "properties": {}
+      }
+     },
+     {
+      "name": "n_GET_trailing",
+      "description": "GET /trailing/",
+      "serviceName": "n",
+      "httpMethod": "GET",
+      "path": "/trailing/",
+      "inputSchema": {
+       "type": "object",
+       "properties": {}
+      }
+     },
+     {
+      "name": "n_GET_empty-operation-id",
+      "description": "GET /empty-operation-id",
+      "serviceName": "n",
+      "httpMethod": "GET",
+      "path": "/empty-operation-id",
+      "inputSchema": {
+       "type": "object",
+       "properties": {}
+      }
+     },
+     {
+      "name": "n_described",
+      "description": "Says something",
+      "serviceName": "n",
+      "httpMethod": "GET",
+      "path": "/described",
+      "inputSchema": {
+       "type": "object",
+       "properties": {}
+      }
+     },
+     {
+      "name": "n_anOperationIdThatIsLongEnoughToPushTheToolNameBeyondSixtyFourCharacters",
+      "description": "GET /long",
+      "serviceName": "n",
+      "httpMethod": "GET",
+      "path": "/long",
+      "inputSchema": {
+       "type": "object",
+       "properties": {}
+      }
+     },
+     {
+      "name": "n_dup",
+      "description": "GET /duplicate/one",
+      "serviceName": "n",
+      "httpMethod": "GET",
+      "path": "/duplicate/one",
+      "inputSchema": {
+       "type": "object",
+       "properties": {}
+      }
+     },
+     {
+      "name": "n_dup",
+      "description": "GET /duplicate/two",
+      "serviceName": "n",
+      "httpMethod": "GET",
+      "path": "/duplicate/two",
+      "inputSchema": {
+       "type": "object",
+       "properties": {}
+      }
+     },
+     {
+      "name": "n_POST_very_long_path_that_goes_on_and_on_for_many_segments_beyond_the_limit",
+      "description": "POST /very/long/path/that/goes/on/and/on/for/many/segments/beyond/the/limit",
+      "serviceName": "n",
+      "httpMethod": "POST",
+      "path": "/very/long/path/that/goes/on/and/on/for/many/segments/beyond/the/limit",
+      "inputSchema": {
+       "type": "object",
+       "properties": {}
+      }
+     },
+     {
+      "name": "n_DELETE_x_a_y_b",
+      "description": "DELETE /x/{a}/y/{b}",
+      "serviceName": "n",
+      "httpMethod": "DELETE",
+      "path": "/x/{a}/y/{b}",
+      "inputSchema": {
+       "type": "object",
+       "properties": {}
+      }
+     },
+     {
+      "name": "n_PATCH_under_scores_id",
+      "description": "PATCH /under__scores/{id}",
+      "serviceName": "n",
+      "httpMethod": "PATCH",
+      "path": "/under__scores/{id}",
+      "inputSchema": {
+       "type": "object",
+       "properties": {}
+      }
+     },
+     {
+      "name": "n_PUT_dots.and-dashes",
+      "description": "PUT /dots.and-dashes",
+      "serviceName": "n",
+      "httpMethod": "PUT",
+      "path": "/dots.and-dashes",
+      "inputSchema": {
+       "type": "object",
+       "properties": {}
+      }
+     },
+     {
+      "name": "n_OPTIONS_methods",
+      "description": "OPTIONS /methods",
+      "serviceName": "n",
+      "httpMethod": "OPTIONS",
+      "path": "/methods",
+      "inputSchema": {
+       "type": "object",
+       "properties": {}
+      }
+     },
+     {
+      "name": "n_headOp",
+      "description": "HEAD /methods",
+      "serviceName": "n",
+      "httpMethod": "HEAD",
+      "path": "/methods",
+      "inputSchema": {
+       "type": "object",
+       "properties": {}
+      }
+     },
+     {
+      "name": "n_SEARCH_methods",
+      "description": "SEARCH /methods",
+      "serviceName": "n",
+      "httpMethod": "SEARCH",
+      "path": "/methods",
+      "inputSchema": {
+       "type": "object",
+       "properties": {}
+      }
+     }
+    ],
+    "warnings": [
+     "MCP tool name \"n_anOperationIdThatIsLongEnoughToPushTheToolNameBeyondSixtyFourCharacters\" is 73 characters, which exceeds the recommended maximum of 64.",
+     "MCP tool name \"n_POST_very_long_path_that_goes_on_and_on_for_many_segments_beyond_the_limit\" is 76 characters, which exceeds the recommended maximum of 64."
+    ]
+   }
+  }
+ ]
+}

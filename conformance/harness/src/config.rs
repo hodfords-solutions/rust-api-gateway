@@ -105,6 +105,16 @@ pub struct Mcp {
     pub allowed_operations: Option<Vec<String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub server_info: Option<Value>,
+    /// `{ "rejectServices": [...], "rejectPathPrefixes": [...] }`: the `filter` callback of
+    /// the MCP callback protocol (`conformance/README.md`).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub filter: Option<Value>,
+    /// `{ "rejectNames": [...], "rejectIn": [...] }`: the `parameterFilter` callback.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub parameter_filter: Option<Value>,
+    /// A template such as `"{serviceName}.{operationId}"`: the `toolName` callback.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tool_name: Option<String>,
 }
 
 impl Default for GatewayConfig {
@@ -148,6 +158,9 @@ impl GatewayConfig {
                 allowed_services: None,
                 allowed_operations: None,
                 server_info: None,
+                filter: None,
+                parameter_filter: None,
+                tool_name: None,
             }),
         }
     }
@@ -184,6 +197,21 @@ impl GatewayConfig {
 
     pub fn pool(mut self, pool: Value) -> Self {
         self.pool = pool;
+        self
+    }
+
+    /// Changes the `mcp` section (created enabled with defaults when absent).
+    pub fn mcp(mut self, f: impl FnOnce(&mut Mcp)) -> Self {
+        let mcp = self.mcp.get_or_insert_with(|| Mcp {
+            enabled: true,
+            allowed_services: None,
+            allowed_operations: None,
+            server_info: None,
+            filter: None,
+            parameter_filter: None,
+            tool_name: None,
+        });
+        f(mcp);
         self
     }
 

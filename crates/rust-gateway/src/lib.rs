@@ -15,6 +15,8 @@ pub mod documents;
 pub mod error;
 pub mod gateway;
 pub mod handler;
+#[cfg(feature = "mcp")]
+pub mod mcp;
 pub mod openapi;
 mod proxy;
 pub mod rate_limit;

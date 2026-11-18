@@ -1,0 +1,1235 @@
+{
+ "versions": {
+  "node": "v24.20.0",
+  "@hodfords/nestjs-api-gateway": "12.4.2"
+ },
+ "cases": [
+  {
+   "name": "path, query, header",
+   "tool": {
+    "httpMethod": "GET",
+    "path": "/users/{id}"
+   },
+   "args": {
+    "path_id": "42",
+    "query_status": "active",
+    "header_locale": "en"
+   },
+   "middleware": [],
+   "excludeHeaders": [],
+   "reference": {
+    "method": "GET",
+    "path": "/users/42/?status=active",
+    "headers": [
+     [
+      "content-type",
+      "application/json"
+     ],
+     [
+      "locale",
+      "en"
+     ]
+    ],
+    "body": null
+   }
+  },
+  {
+   "name": "no arguments",
+   "tool": {
+    "httpMethod": "GET",
+    "path": "/health"
+   },
+   "args": {},
+   "middleware": [],
+   "excludeHeaders": [],
+   "reference": {
+    "method": "GET",
+    "path": "/health/",
+    "headers": [
+     [
+      "content-type",
+      "application/json"
+     ]
+    ],
+    "body": null
+   }
+  },
+  {
+   "name": "trailing slash kept",
+   "tool": {
+    "httpMethod": "GET",
+    "path": "/health/"
+   },
+   "args": {},
+   "middleware": [],
+   "excludeHeaders": [],
+   "reference": {
+    "method": "GET",
+    "path": "/health/",
+    "headers": [
+     [
+      "content-type",
+      "application/json"
+     ]
+    ],
+    "body": null
+   }
+  },
+  {
+   "name": "unknown shapes",
+   "tool": {
+    "httpMethod": "GET",
+    "path": "/users/{id}"
+   },
+   "args": {
+    "path_id": "1",
+    "other": "x",
+    "Path_x": 1,
+    "bodyx": 2,
+    "header": "h",
+    "query": "q"
+   },
+   "middleware": [],
+   "excludeHeaders": [],
+   "reference": {
+    "method": "GET",
+    "path": "/users/1/",
+    "headers": [
+     [
+      "content-type",
+      "application/json"
+     ]
+    ],
+    "body": null
+   }
+  },
+  {
+   "name": "missing path argument",
+   "tool": {
+    "httpMethod": "GET",
+    "path": "/users/{id}"
+   },
+   "args": {
+    "path_nope": "x"
+   },
+   "middleware": [],
+   "excludeHeaders": [],
+   "reference": {
+    "method": "GET",
+    "path": "/users/{id}/",
+    "headers": [
+     [
+      "content-type",
+      "application/json"
+     ]
+    ],
+    "body": null
+   }
+  },
+  {
+   "name": "repeated placeholder",
+   "tool": {
+    "httpMethod": "GET",
+    "path": "/a/{id}/b/{id}"
+   },
+   "args": {
+    "path_id": "7"
+   },
+   "middleware": [],
+   "excludeHeaders": [],
+   "reference": {
+    "method": "GET",
+    "path": "/a/7/b/{id}/",
+    "headers": [
+     [
+      "content-type",
+      "application/json"
+     ]
+    ],
+    "body": null
+   }
+  },
+  {
+   "name": "two placeholders",
+   "tool": {
+    "httpMethod": "GET",
+    "path": "/a/{x}/b/{y}"
+   },
+   "args": {
+    "path_y": "Y",
+    "path_x": "X"
+   },
+   "middleware": [],
+   "excludeHeaders": [],
+   "reference": {
+    "method": "GET",
+    "path": "/a/X/b/Y/",
+    "headers": [
+     [
+      "content-type",
+      "application/json"
+     ]
+    ],
+    "body": null
+   }
+  },
+  {
+   "name": "path value types",
+   "tool": {
+    "httpMethod": "GET",
+    "path": "/{a}/{b}/{c}/{d}/{e}"
+   },
+   "args": {
+    "path_a": 12,
+    "path_b": true,
+    "path_c": null,
+    "path_d": 1e+21,
+    "path_e": 0
+   },
+   "middleware": [],
+   "excludeHeaders": [],
+   "reference": {
+    "method": "GET",
+    "path": "/12/true/null/1e+21/0/",
+    "headers": [
+     [
+      "content-type",
+      "application/json"
+     ]
+    ],
+    "body": null
+   }
+  },
+  {
+   "name": "query stringification",
+   "tool": {
+    "httpMethod": "GET",
+    "path": "/users/{id}"
+   },
+   "args": {
+    "path_id": "1",
+    "query_s": "a b&c=d/é?+*-._~!()'%#[]",
+    "query_n": 1.5,
+    "query_int": 10,
+    "query_big": 1e+21,
+    "query_small": 1e-7,
+    "query_tiny": 0.000001,
+    "query_neg": -2.5,
+    "query_neg0": 0,
+    "query_huge": 12345678901234567000,
+    "query_t": true,
+    "query_f": false,
+    "query_null": null,
+    "query_obj": {
+     "a": 1
+    },
+    "query_arr": [
+     1,
+     [
+      2,
+      3
+     ],
+     null,
+     {
+      "x": 1
+     },
+     "z",
+     true
+    ],
+    "query_emptyArr": [],
+    "query_nestedEmpty": [
+     [],
+     [
+      null
+     ]
+    ],
+    "query_empty": "",
+    "query_": "blank name",
+    "query_a b": "space in name",
+    "query_10": "ten",
+    "query_2": "two",
+    "query_é": "accented name",
+    "query_emoji": "😀",
+    "query_ctrl": "\u0001\n\t"
+   },
+   "middleware": [],
+   "excludeHeaders": [],
+   "reference": {
+    "method": "GET",
+    "path": "/users/1/?2=two&10=ten&s=a+b%26c%3Dd%2F%C3%A9%3F%2B*-._%7E%21%28%29%27%25%23%5B%5D&n=1.5&int=10&big=1e%2B21&small=1e-7&tiny=0.000001&neg=-2.5&neg0=0&huge=12345678901234567000&t=true&f=false&null=null&obj=%5Bobject+Object%5D&arr=1%2C2%2C3%2C%2C%5Bobject+Object%5D%2Cz%2Ctrue&emptyArr=&nestedEmpty=%2C&empty=&=blank+name&a+b=space+in+name&%C3%A9=accented+name&emoji=%F0%9F%98%80&ctrl=%01%0A%09",
+    "headers": [
+     [
+      "content-type",
+      "application/json"
+     ]
+    ],
+    "body": null
+   }
+  },
+  {
+   "name": "empty query value",
+   "tool": {
+    "httpMethod": "GET",
+    "path": "/users/{id}"
+   },
+   "args": {
+    "path_id": "1",
+    "query_a": ""
+   },
+   "middleware": [],
+   "excludeHeaders": [],
+   "reference": {
+    "method": "GET",
+    "path": "/users/1/?a=",
+    "headers": [
+     [
+      "content-type",
+      "application/json"
+     ]
+    ],
+    "body": null
+   }
+  },
+  {
+   "name": "duplicate query name",
+   "tool": {
+    "httpMethod": "GET",
+    "path": "/users/{id}"
+   },
+   "args": {
+    "path_id": "1",
+    "query_a": "first",
+    "query_a ": "spaced"
+   },
+   "middleware": [],
+   "excludeHeaders": [],
+   "reference": {
+    "method": "GET",
+    "path": "/users/1/?a=first&a+=spaced",
+    "headers": [
+     [
+      "content-type",
+      "application/json"
+     ]
+    ],
+    "body": null
+   }
+  },
+  {
+   "name": "header precedence",
+   "tool": {
+    "httpMethod": "GET",
+    "path": "/users/{id}"
+   },
+   "args": {
+    "path_id": "7",
+    "header_x-request-id": "arg",
+    "header_Content-Type": "text/plain",
+    "header_content-type": "text/x",
+    "header_x-empty": "",
+    "header_Auth-User-Id": "spoof",
+    "header_permission-in-any-guard": "spoof",
+    "header_x-num": 0,
+    "header_x-false": false,
+    "header_x-null": null,
+    "header_7": "seven",
+    "header_X-Up": "Up",
+    "header_x-obj": {
+     "a": 1
+    }
+   },
+   "middleware": [
+    [
+     "x-request-id",
+     "mw"
+    ],
+    [
+     "xEmpty",
+     ""
+    ],
+    [
+     "x-mw",
+     "1"
+    ],
+    [
+     "X-Up",
+     "mw"
+    ],
+    [
+     "x-num",
+     ""
+    ],
+    [
+     "authUserId",
+     "99"
+    ]
+   ],
+   "excludeHeaders": [
+    "auth-user-id",
+    "permission-in-any-guard"
+   ],
+   "reference": {
+    "method": "GET",
+    "path": "/users/7/",
+    "headers": [
+     [
+      "content-type",
+      "text/x"
+     ],
+     [
+      "7",
+      "seven"
+     ],
+     [
+      "x-request-id",
+      "mw"
+     ],
+     [
+      "Content-Type",
+      "text/plain"
+     ],
+     [
+      "x-false",
+      "false"
+     ],
+     [
+      "x-null",
+      "null"
+     ],
+     [
+      "X-Up",
+      "Up"
+     ],
+     [
+      "x-obj",
+      "[object Object]"
+     ],
+     [
+      "x-mw",
+      "1"
+     ],
+     [
+      "x-up",
+      "mw"
+     ],
+     [
+      "auth-user-id",
+      "99"
+     ]
+    ],
+    "body": null
+   }
+  },
+  {
+   "name": "middleware only",
+   "tool": {
+    "httpMethod": "GET",
+    "path": "/users/{id}"
+   },
+   "args": {
+    "path_id": "7"
+   },
+   "middleware": [
+    [
+     "authUserId",
+     "1"
+    ],
+    [
+     "xTraceId",
+     "abc"
+    ],
+    [
+     "3",
+     "three"
+    ]
+   ],
+   "excludeHeaders": [
+    "auth-user-id"
+   ],
+   "reference": {
+    "method": "GET",
+    "path": "/users/7/",
+    "headers": [
+     [
+      "content-type",
+      "application/json"
+     ],
+     [
+      "3",
+      "three"
+     ],
+     [
+      "auth-user-id",
+      "1"
+     ],
+     [
+      "x-trace-id",
+      "abc"
+     ]
+    ],
+    "body": null
+   }
+  },
+  {
+   "name": "excluded header argument, no middleware",
+   "tool": {
+    "httpMethod": "GET",
+    "path": "/users/{id}"
+   },
+   "args": {
+    "path_id": "42",
+    "header_Auth-User-Id": "spoofed"
+   },
+   "middleware": [],
+   "excludeHeaders": [
+    "auth-user-id"
+   ],
+   "reference": {
+    "method": "GET",
+    "path": "/users/42/",
+    "headers": [
+     [
+      "content-type",
+      "application/json"
+     ]
+    ],
+    "body": null
+   }
+  },
+  {
+   "name": "content-type from middleware",
+   "tool": {
+    "httpMethod": "GET",
+    "path": "/users/{id}"
+   },
+   "args": {
+    "path_id": "1"
+   },
+   "middleware": [
+    [
+     "contentType",
+     "text/csv"
+    ]
+   ],
+   "excludeHeaders": [],
+   "reference": {
+    "method": "GET",
+    "path": "/users/1/",
+    "headers": [
+     [
+      "content-type",
+      "text/csv"
+     ]
+    ],
+    "body": null
+   }
+  },
+  {
+   "name": "POST object body",
+   "tool": {
+    "httpMethod": "POST",
+    "path": "/users"
+   },
+   "args": {
+    "body": {
+     "1": "one",
+     "2": "two",
+     "b": 1,
+     "a": [
+      1,
+      "x",
+      null
+     ],
+     "c": "é",
+     "d": 1e+21,
+     "e": {
+      "3": 3,
+      "10": 1,
+      "z": 2
+     }
+    }
+   },
+   "middleware": [],
+   "excludeHeaders": [],
+   "reference": {
+    "method": "POST",
+    "path": "/users/",
+    "headers": [
+     [
+      "content-type",
+      "application/json"
+     ]
+    ],
+    "body": "{\"1\":\"one\",\"2\":\"two\",\"b\":1,\"a\":[1,\"x\",null],\"c\":\"é\",\"d\":1e+21,\"e\":{\"3\":3,\"10\":1,\"z\":2}}"
+   }
+  },
+  {
+   "name": "POST string body",
+   "tool": {
+    "httpMethod": "POST",
+    "path": "/users"
+   },
+   "args": {
+    "body": "str"
+   },
+   "middleware": [],
+   "excludeHeaders": [],
+   "reference": {
+    "method": "POST",
+    "path": "/users/",
+    "headers": [
+     [
+      "content-type",
+      "application/json"
+     ]
+    ],
+    "body": "\"str\""
+   }
+  },
+  {
+   "name": "POST number body",
+   "tool": {
+    "httpMethod": "POST",
+    "path": "/users"
+   },
+   "args": {
+    "body": 12.5
+   },
+   "middleware": [],
+   "excludeHeaders": [],
+   "reference": {
+    "method": "POST",
+    "path": "/users/",
+    "headers": [
+     [
+      "content-type",
+      "application/json"
+     ]
+    ],
+    "body": "12.5"
+   }
+  },
+  {
+   "name": "POST true body",
+   "tool": {
+    "httpMethod": "POST",
+    "path": "/users"
+   },
+   "args": {
+    "body": true
+   },
+   "middleware": [],
+   "excludeHeaders": [],
+   "reference": {
+    "method": "POST",
+    "path": "/users/",
+    "headers": [
+     [
+      "content-type",
+      "application/json"
+     ]
+    ],
+    "body": "true"
+   }
+  },
+  {
+   "name": "POST empty object body",
+   "tool": {
+    "httpMethod": "POST",
+    "path": "/users"
+   },
+   "args": {
+    "body": {}
+   },
+   "middleware": [],
+   "excludeHeaders": [],
+   "reference": {
+    "method": "POST",
+    "path": "/users/",
+    "headers": [
+     [
+      "content-type",
+      "application/json"
+     ]
+    ],
+    "body": "{}"
+   }
+  },
+  {
+   "name": "POST empty array body",
+   "tool": {
+    "httpMethod": "POST",
+    "path": "/users"
+   },
+   "args": {
+    "body": []
+   },
+   "middleware": [],
+   "excludeHeaders": [],
+   "reference": {
+    "method": "POST",
+    "path": "/users/",
+    "headers": [
+     [
+      "content-type",
+      "application/json"
+     ]
+    ],
+    "body": "[]"
+   }
+  },
+  {
+   "name": "POST 0 body",
+   "tool": {
+    "httpMethod": "POST",
+    "path": "/users"
+   },
+   "args": {
+    "body": 0
+   },
+   "middleware": [],
+   "excludeHeaders": [],
+   "reference": {
+    "method": "POST",
+    "path": "/users/",
+    "headers": [
+     [
+      "content-type",
+      "application/json"
+     ]
+    ],
+    "body": null
+   }
+  },
+  {
+   "name": "POST false body",
+   "tool": {
+    "httpMethod": "POST",
+    "path": "/users"
+   },
+   "args": {
+    "body": false
+   },
+   "middleware": [],
+   "excludeHeaders": [],
+   "reference": {
+    "method": "POST",
+    "path": "/users/",
+    "headers": [
+     [
+      "content-type",
+      "application/json"
+     ]
+    ],
+    "body": null
+   }
+  },
+  {
+   "name": "POST null body",
+   "tool": {
+    "httpMethod": "POST",
+    "path": "/users"
+   },
+   "args": {
+    "body": null
+   },
+   "middleware": [],
+   "excludeHeaders": [],
+   "reference": {
+    "method": "POST",
+    "path": "/users/",
+    "headers": [
+     [
+      "content-type",
+      "application/json"
+     ]
+    ],
+    "body": null
+   }
+  },
+  {
+   "name": "POST empty string body",
+   "tool": {
+    "httpMethod": "POST",
+    "path": "/users"
+   },
+   "args": {
+    "body": ""
+   },
+   "middleware": [],
+   "excludeHeaders": [],
+   "reference": {
+    "method": "POST",
+    "path": "/users/",
+    "headers": [
+     [
+      "content-type",
+      "application/json"
+     ]
+    ],
+    "body": null
+   }
+  },
+  {
+   "name": "POST control characters",
+   "tool": {
+    "httpMethod": "POST",
+    "path": "/users"
+   },
+   "args": {
+    "body": {
+     "s": "\u0000\u001f\b\f\n\r\t\"\\/ "
+    }
+   },
+   "middleware": [],
+   "excludeHeaders": [],
+   "reference": {
+    "method": "POST",
+    "path": "/users/",
+    "headers": [
+     [
+      "content-type",
+      "application/json"
+     ]
+    ],
+    "body": "{\"s\":\"\\u0000\\u001f\\b\\f\\n\\r\\t\\\"\\\\/ \"}"
+   }
+  },
+  {
+   "name": "PUT body",
+   "tool": {
+    "httpMethod": "PUT",
+    "path": "/users/{id}"
+   },
+   "args": {
+    "path_id": "1",
+    "body": {
+     "a": 1
+    }
+   },
+   "middleware": [],
+   "excludeHeaders": [],
+   "reference": {
+    "method": "PUT",
+    "path": "/users/1/",
+    "headers": [
+     [
+      "content-type",
+      "application/json"
+     ]
+    ],
+    "body": "{\"a\":1}"
+   }
+  },
+  {
+   "name": "PATCH body",
+   "tool": {
+    "httpMethod": "PATCH",
+    "path": "/users/{id}"
+   },
+   "args": {
+    "path_id": "1",
+    "body": [
+     1
+    ]
+   },
+   "middleware": [],
+   "excludeHeaders": [],
+   "reference": {
+    "method": "PATCH",
+    "path": "/users/1/",
+    "headers": [
+     [
+      "content-type",
+      "application/json"
+     ]
+    ],
+    "body": "[1]"
+   }
+  },
+  {
+   "name": "GET body ignored",
+   "tool": {
+    "httpMethod": "GET",
+    "path": "/users/{id}"
+   },
+   "args": {
+    "path_id": "1",
+    "body": {
+     "a": 1
+    }
+   },
+   "middleware": [],
+   "excludeHeaders": [],
+   "reference": {
+    "method": "GET",
+    "path": "/users/1/",
+    "headers": [
+     [
+      "content-type",
+      "application/json"
+     ]
+    ],
+    "body": null
+   }
+  },
+  {
+   "name": "DELETE body ignored",
+   "tool": {
+    "httpMethod": "DELETE",
+    "path": "/users/{id}"
+   },
+   "args": {
+    "path_id": "1",
+    "body": {
+     "a": 1
+    }
+   },
+   "middleware": [],
+   "excludeHeaders": [],
+   "reference": {
+    "method": "DELETE",
+    "path": "/users/1/",
+    "headers": [
+     [
+      "content-type",
+      "application/json"
+     ]
+    ],
+    "body": null
+   }
+  },
+  {
+   "name": "HEAD",
+   "tool": {
+    "httpMethod": "HEAD",
+    "path": "/users/{id}"
+   },
+   "args": {
+    "path_id": "1"
+   },
+   "middleware": [],
+   "excludeHeaders": [],
+   "reference": {
+    "method": "HEAD",
+    "path": "/users/1/",
+    "headers": [
+     [
+      "content-type",
+      "application/json"
+     ]
+    ],
+    "body": null
+   }
+  },
+  {
+   "name": "OPTIONS body ignored",
+   "tool": {
+    "httpMethod": "OPTIONS",
+    "path": "/users"
+   },
+   "args": {
+    "body": {
+     "a": 1
+    }
+   },
+   "middleware": [],
+   "excludeHeaders": [],
+   "reference": {
+    "method": "OPTIONS",
+    "path": "/users/",
+    "headers": [
+     [
+      "content-type",
+      "application/json"
+     ]
+    ],
+    "body": null
+   }
+  },
+  {
+   "name": "SEARCH body ignored",
+   "tool": {
+    "httpMethod": "SEARCH",
+    "path": "/users"
+   },
+   "args": {
+    "body": {
+     "a": 1
+    }
+   },
+   "middleware": [],
+   "excludeHeaders": [],
+   "reference": {
+    "method": "SEARCH",
+    "path": "/users/",
+    "headers": [
+     [
+      "content-type",
+      "application/json"
+     ]
+    ],
+    "body": null
+   }
+  },
+  {
+   "name": "later body argument wins",
+   "tool": {
+    "httpMethod": "POST",
+    "path": "/users"
+   },
+   "args": {
+    "body": {
+     "a": 1
+    },
+    "query_x": 1
+   },
+   "middleware": [],
+   "excludeHeaders": [],
+   "reference": {
+    "method": "POST",
+    "path": "/users/?x=1",
+    "headers": [
+     [
+      "content-type",
+      "application/json"
+     ]
+    ],
+    "body": "{\"a\":1}"
+   }
+  }
+ ],
+ "d7": [
+  {
+   "name": "traversal",
+   "tool": {
+    "httpMethod": "GET",
+    "path": "/users/{id}"
+   },
+   "args": {
+    "path_id": "../admin"
+   },
+   "reference": {
+    "method": "GET",
+    "path": "/users/../admin/",
+    "headers": [
+     [
+      "content-type",
+      "application/json"
+     ]
+    ],
+    "body": null
+   }
+  },
+  {
+   "name": "slash",
+   "tool": {
+    "httpMethod": "GET",
+    "path": "/users/{id}"
+   },
+   "args": {
+    "path_id": "a/b"
+   },
+   "reference": {
+    "method": "GET",
+    "path": "/users/a/b/",
+    "headers": [
+     [
+      "content-type",
+      "application/json"
+     ]
+    ],
+    "body": null
+   }
+  },
+  {
+   "name": "dot",
+   "tool": {
+    "httpMethod": "GET",
+    "path": "/users/{id}"
+   },
+   "args": {
+    "path_id": "."
+   },
+   "reference": {
+    "method": "GET",
+    "path": "/users/./",
+    "headers": [
+     [
+      "content-type",
+      "application/json"
+     ]
+    ],
+    "body": null
+   }
+  },
+  {
+   "name": "dot dot",
+   "tool": {
+    "httpMethod": "GET",
+    "path": "/users/{id}"
+   },
+   "args": {
+    "path_id": ".."
+   },
+   "reference": {
+    "method": "GET",
+    "path": "/users/../",
+    "headers": [
+     [
+      "content-type",
+      "application/json"
+     ]
+    ],
+    "body": null
+   }
+  },
+  {
+   "name": "empty",
+   "tool": {
+    "httpMethod": "GET",
+    "path": "/users/{id}"
+   },
+   "args": {
+    "path_id": ""
+   },
+   "reference": {
+    "method": "GET",
+    "path": "/users/",
+    "headers": [
+     [
+      "content-type",
+      "application/json"
+     ]
+    ],
+    "body": null
+   }
+  },
+  {
+   "name": "query injection",
+   "tool": {
+    "httpMethod": "GET",
+    "path": "/users/{id}"
+   },
+   "args": {
+    "path_id": "x?admin=1"
+   },
+   "reference": {
+    "method": "GET",
+    "path": "/users/x?admin=1/",
+    "headers": [
+     [
+      "content-type",
+      "application/json"
+     ]
+    ],
+    "body": null
+   }
+  },
+  {
+   "name": "fragment",
+   "tool": {
+    "httpMethod": "GET",
+    "path": "/users/{id}"
+   },
+   "args": {
+    "path_id": "x#y"
+   },
+   "reference": {
+    "method": "GET",
+    "path": "/users/x#y/",
+    "headers": [
+     [
+      "content-type",
+      "application/json"
+     ]
+    ],
+    "body": null
+   }
+  },
+  {
+   "name": "replacement pattern",
+   "tool": {
+    "httpMethod": "GET",
+    "path": "/users/{id}"
+   },
+   "args": {
+    "path_id": "x$&y"
+   },
+   "reference": {
+    "method": "GET",
+    "path": "/users/x{id}y/",
+    "headers": [
+     [
+      "content-type",
+      "application/json"
+     ]
+    ],
+    "body": null
+   }
+  },
+  {
+   "name": "placeholder in value",
+   "tool": {
+    "httpMethod": "GET",
+    "path": "/users/{id}"
+   },
+   "args": {
+    "path_id": "{id}"
+   },
+   "reference": {
+    "method": "GET",
+    "path": "/users/{id}/",
+    "headers": [
+     [
+      "content-type",
+      "application/json"
+     ]
+    ],
+    "body": null
+   }
+  },
+  {
+   "name": "percent",
+   "tool": {
+    "httpMethod": "GET",
+    "path": "/users/{id}"
+   },
+   "args": {
+    "path_id": "%2e%2e"
+   },
+   "reference": {
+    "method": "GET",
+    "path": "/users/%2e%2e/",
+    "headers": [
+     [
+      "content-type",
+      "application/json"
+     ]
+    ],
+    "body": null
+   }
+  },
+  {
+   "name": "space and unicode",
+   "tool": {
+    "httpMethod": "GET",
+    "path": "/users/{id}"
+   },
+   "args": {
+    "path_id": "a bé"
+   },
+   "reference": {
+    "method": "GET",
+    "path": "/users/a bé/",
+    "headers": [
+     [
+      "content-type",
+      "application/json"
+     ]
+    ],
+    "body": null
+   }
+  }
+ ]
+}

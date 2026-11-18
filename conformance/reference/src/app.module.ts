@@ -3,6 +3,7 @@ import { ScheduleModule } from '@nestjs/schedule';
 import { ApiGatewayModule } from '@hodfords/nestjs-api-gateway';
 import { config, redisTls } from './config.js';
 import { resolveIdentity } from './protocol.js';
+import { mcpOption } from './mcp-callbacks.js';
 import { ConformanceController } from './conformance.controller.js';
 import { TestProxyMiddleware } from './middleware/proxy.middleware.js';
 import { TestWsMiddleware } from './middleware/ws.middleware.js';
@@ -36,7 +37,7 @@ const tls = redisTls();
             },
             pool: config.pool,
             bypassRoutePrefixes: config.bypassRoutePrefixes,
-            mcp: config.mcp
+            mcp: mcpOption(config.mcp)
         })
     ],
     controllers: [ConformanceController],
