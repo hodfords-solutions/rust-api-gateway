@@ -197,6 +197,23 @@ async fn answer(
     {
         response.headers_mut().insert("x-powered-by", value);
     }
+    // `header=<name>:<value>` makes the upstream send that header (percent-decoded: the
+    // gateway re-encodes the query, FWD-04).
+    let decoded = target.split("header=").nth(1).map(|v| {
+        let v = v.split('&').next().unwrap_or_default();
+        url::form_urlencoded::parse(format!("v={v}").as_bytes())
+            .next()
+            .map(|(_, v)| v.into_owned())
+            .unwrap_or_default()
+    });
+    if let Some((name, value)) = decoded.as_deref().and_then(|v| v.split_once(':'))
+        && let (Ok(name), Ok(value)) = (
+            http::HeaderName::from_bytes(name.as_bytes()),
+            http::HeaderValue::from_str(value),
+        )
+    {
+        response.headers_mut().insert(name, value);
+    }
     response
 }
 
