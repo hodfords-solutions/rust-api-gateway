@@ -6,6 +6,11 @@ edition.workspace = true
 license.workspace = true
 publish.workspace = true
 
+[features]
+default = ["otel"]
+# Starts OpenTelemetry tracing when `OTLP_URL` is set (Parity Checklist area 09).
+otel = ["rust-gateway/otel"]
+
 [dependencies]
 axum = { version = "0.8.9", default-features = false, features = ["http1", "json", "tokio"] }
 http = "1.5.0"

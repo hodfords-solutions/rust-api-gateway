@@ -57,15 +57,27 @@ pub(crate) async fn dispatch(shared: &Arc<Shared>, request: Request<Body>) -> Re
             && let Some(endpoint) =
                 DocumentEndpoint::match_request(request.method(), request.uri().path())
         {
+            #[cfg(feature = "otel")]
+            crate::otel::record(
+                request.extensions(),
+                crate::otel::Matched::Endpoint(match endpoint {
+                    DocumentEndpoint::Page => "/documents",
+                    DocumentEndpoint::Json => "/document-json",
+                }),
+            );
             return document_response(shared, documents, endpoint, request.uri().query()).await;
         }
         #[cfg(feature = "mcp")]
         if let Some(mount) = &shared.endpoints.mcp
             && mcp::is_mcp_request(request.method(), request.uri().path())
         {
+            #[cfg(feature = "otel")]
+            crate::otel::record(request.extensions(), crate::otel::Matched::Endpoint("/mcp"));
             return mount.handle(request).await;
         }
     }
+    #[cfg(feature = "otel")]
+    crate::otel::record(request.extensions(), crate::otel::Matched::Proxy);
     crate::proxy::handle(shared, request).await
 }
 

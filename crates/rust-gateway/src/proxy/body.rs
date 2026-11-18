@@ -168,10 +168,17 @@ where
         }
     }
 
-    /// Runs `hook` once the body has been sent completely (the reference's `finish` event).
-    /// A body that is empty from the start counts as sent when the response is dropped.
+    /// Runs `hook` once the body has been sent completely (the reference's `finish` event),
+    /// after the hooks given before it. A body that is empty from the start counts as sent
+    /// when the response is dropped. A hook that never runs is dropped with the body.
     pub(crate) fn on_end(mut self, hook: impl FnOnce() + Send + 'static) -> Self {
-        self.on_end = Some(Box::new(hook));
+        self.on_end = Some(match self.on_end.take() {
+            Some(first) => Box::new(move || {
+                first();
+                hook();
+            }),
+            None => Box::new(hook),
+        });
         self
     }
 

@@ -232,6 +232,7 @@ fn still_forwards_path_method_and_merged_headers() {
         "/socket.io/?EIO=4",
         entries(&[("upgrade", "websocket"), ("cookie", "a=1")]),
         &[("auth-user-id".into(), "u-1".into())],
+        &[],
         &upstream,
     )
     .expect("valid");
@@ -273,6 +274,7 @@ fn middleware_headers_replace_in_place_and_nothing_is_added() {
             ("x-keep".into(), "override".into()),
             ("new-one".into(), "n".into()),
         ],
+        &[],
         &upstream,
     )
     .expect("valid");
@@ -295,6 +297,7 @@ fn invalid_middleware_headers_fail_like_node_throws() {
             "/",
             Vec::new(),
             &[(extra.0.into(), extra.1.into())],
+            &[],
             &upstream,
         );
         assert!(
@@ -308,6 +311,7 @@ fn invalid_middleware_headers_fail_like_node_throws() {
         "/",
         Vec::new(),
         &[("x-a".into(), "\u{e9}".into())],
+        &[],
         &upstream,
     )
     .expect("latin1 is fine");
@@ -349,6 +353,7 @@ fn host_header_is_added_when_the_client_sent_none() {
         &Method::GET,
         "/",
         entries(&[("connection", "Upgrade")]),
+        &[],
         &[],
         &upstream,
     )

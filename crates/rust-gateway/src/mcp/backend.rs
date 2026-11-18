@@ -138,10 +138,30 @@ impl GatewayBackend {
             message: format!("Service unavailable: {service}"),
         })?;
         let request = upstream_request(pool.origin().authority(), &call)?;
-        let response = pool.send(request).await.map_err(|e| UpstreamError {
-            message: e.to_string(),
+        // OTEL-03, OTEL-04: the client span, its headers after the call's (where undici's
+        // instrumentation adds them), once the request is known to be valid.
+        #[cfg(feature = "otel")]
+        let (request, trace) = match traced(pool, &call) {
+            Some((call, span)) => (
+                upstream_request(pool.origin().authority(), &call)?,
+                Some(span),
+            ),
+            None => (request, None),
+        };
+        let response = pool.send(request).await.map_err(|e| {
+            #[cfg(feature = "otel")]
+            if let Some(span) = &trace {
+                span.fail(&e, e.trace_type());
+            }
+            UpstreamError {
+                message: e.to_string(),
+            }
         })?;
         let status = response.status().as_u16();
+        #[cfg(feature = "otel")]
+        if let Some(span) = &trace {
+            span.response(status);
+        }
         let body = response
             .into_body()
             .collect()
@@ -266,6 +286,41 @@ fn upstream_request(
     *request.uri_mut() = http::Uri::from_static("/");
     *request.headers_mut() = headers;
     Ok(request)
+}
+
+/// The client span of a tool call (OTEL-03) when tracing is started, and the call with the
+/// span's `traceparent` (and `tracestate`) in place of any it had, after its other headers.
+#[cfg(feature = "otel")]
+fn traced(
+    pool: &UpstreamPool,
+    call: &UpstreamCall,
+) -> Option<(UpstreamCall, crate::otel::ClientSpan)> {
+    if !crate::otel::is_started() {
+        return None;
+    }
+    let user_agent = call
+        .headers
+        .iter()
+        .rev()
+        .find(|(name, _)| name.eq_ignore_ascii_case("user-agent"))
+        .map(|(_, value)| value.as_str());
+    let origin = pool.origin();
+    let url = format!(
+        "{}://{}{}",
+        origin.scheme(),
+        origin.authority(),
+        call.path_and_query
+    );
+    let span = crate::otel::ClientSpan::start(&call.method_name(), &url, user_agent)?;
+    let mut call = call.clone();
+    call.headers
+        .retain(|(name, _)| !crate::otel::is_trace_header(name));
+    call.headers.extend(
+        span.trace_headers()
+            .into_iter()
+            .map(|(name, value)| (name.to_string(), value)),
+    );
+    Some((call, span))
 }
 
 fn header_value(name: &str, value: &str) -> Result<HeaderValue, UpstreamError> {
