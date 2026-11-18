@@ -1,0 +1,37 @@
+{
+    "name": "rust-gateway-conformance-reference",
+    "version": "0.0.0",
+    "private": true,
+    "description": "Reference Gateway target for the rust-gateway Conformance Tests: a minimal NestJS app embedding @hodfords/nestjs-api-gateway from npm.",
+    "license": "MIT",
+    "type": "module",
+    "packageManager": "pnpm@12.1.0",
+    "engines": {
+        "node": ">=20.19.0"
+    },
+    "scripts": {
+        "build": "tsc -p tsconfig.json",
+        "start": "node dist/main.js"
+    },
+    "dependencies": {
+        "@hodfords/nestjs-api-gateway": "12.4.2",
+        "@nestjs/axios": "12.0.1",
+        "@nestjs/common": "12.1.3",
+        "@nestjs/core": "12.1.3",
+        "@nestjs/platform-express": "12.1.3",
+        "@nestjs/schedule": "12.0.2",
+        "@nestjs/swagger": "12.0.2",
+        "axios": "1.20.0",
+        "express": "5.2.1",
+        "hbs": "4.3.0",
+        "ioredis": "6.0.0",
+        "path-to-regexp": "8.4.2",
+        "reflect-metadata": "0.2.2",
+        "rxjs": "7.8.2"
+    },
+    "devDependencies": {
+        "@types/express": "5.0.6",
+        "@types/node": "26.4.0",
+        "typescript": "6.0.3"
+    }
+}

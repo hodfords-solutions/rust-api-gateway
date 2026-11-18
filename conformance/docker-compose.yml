@@ -1,0 +1,9 @@
+# Redis for the Conformance Tests. Each scenario gets its own database index
+# (the runner flushes it before use), so the server is started with 128 databases.
+name: rust-gateway-conformance
+services:
+    redis:
+        image: redis:7-alpine
+        command: ['redis-server', '--databases', '128', '--save', '', '--appendonly', 'no']
+        ports:
+            - '${CONFORMANCE_REDIS_PORT:-6399}:6379'
