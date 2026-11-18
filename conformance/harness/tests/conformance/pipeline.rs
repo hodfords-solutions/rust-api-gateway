@@ -229,6 +229,7 @@ async fn req_02_url_normalisation() {
             "http://other.example",
             "*",
             "//[bad/svc/x",
+            "/svc//[bad",
             "/svc/v1/\tusers",
         ];
         let mut observed = Vec::new();
@@ -299,6 +300,7 @@ async fn req_02_url_normalisation() {
                     "//[bad/svc/x",
                     "HTTP 500 {\"statusCode\":500,\"message\":\"Internal server error\"}",
                 ),
+                ("/svc//[bad", "HTTP 503 {\"message\":\"Service unavailable.\"}"),
                 ("/svc/v1/\tusers", "HTTP 400 "),
                 ("routed /svc/x/../v1/users", "routed UsersController_listUsers -> /v1/users/"),
                 (
