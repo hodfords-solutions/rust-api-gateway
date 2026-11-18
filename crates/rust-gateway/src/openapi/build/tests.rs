@@ -536,3 +536,229 @@ fn users_service_fixture_builds_the_expected_routes() {
         .unwrap();
     assert!(update.is_bearer_auth && update.is_api_key_auth);
 }
+
+// The documents of the Conformance Tests in `conformance/harness/tests/conformance/openapi.rs`,
+// with the answers the reference gave there.
+
+fn conformance_document(paths: Value) -> Value {
+    json!({ "openapi": "3.0.0", "info": { "title": "conformance", "version": "1.0.0" }, "paths": paths, "components": {} })
+}
+
+#[test]
+fn oas_21_conformance_document_matches_the_reference() {
+    let doc = conformance_document(json!({
+        "/items/{id}": { "get": { "operationId": "items_param" } },
+        "/items/special": {
+            "get": { "operationId": "items_literal" },
+            "post": { "operationId": "items_literal_post" }
+        },
+        "/things/special": { "get": { "operationId": "things_literal" } },
+        "/things/{id}": {
+            "get": { "operationId": "things_param" },
+            "post": { "operationId": "things_param_post" }
+        },
+        "/aliased": { "get": { "operationId": "aliased", "x-router-path": "/things/:id" } }
+    }));
+    let document = build(&doc);
+    let cases = [
+        ("GET", "/items/special", Some("items_param")),
+        ("GET", "/items/1", Some("items_param")),
+        ("POST", "/items/special", Some("items_literal_post")),
+        ("POST", "/items/1", None),
+        ("GET", "/things/special", Some("things_literal")),
+        ("GET", "/things/1", Some("things_param")),
+        ("POST", "/things/special", Some("things_param_post")),
+        ("GET", "/aliased", None),
+    ];
+    for (method, url, expected) in cases {
+        let found = document.routes.lookup(method, url).unwrap();
+        assert_eq!(
+            found.and_then(|r| r.operation_id.clone()).as_deref(),
+            expected,
+            "{method} {url}"
+        );
+    }
+}
+
+#[test]
+fn oas_10_conformance_documents_fail_like_the_reference() {
+    let router_path = conformance_document(json!({
+        "/ok": { "get": { "operationId": "ok" } },
+        "/bad": { "get": { "operationId": "bad", "x-router-path": "/bad/:a:b" } }
+    }));
+    let openapi_path = conformance_document(json!({
+        "/ok": { "get": { "operationId": "ok" } },
+        "/items({id})": { "get": { "operationId": "items" } }
+    }));
+    assert!(build_service_document("u", &router_path, &keys()).is_err());
+    assert!(build_service_document("u", &openapi_path, &keys()).is_err());
+    let control = conformance_document(json!({ "/ok": { "get": { "operationId": "ok" } } }));
+    assert!(build_service_document("u", &control, &keys()).is_ok());
+}
+
+#[test]
+fn oas_11_rate_limits_serialise_as_the_reference_echoes_them() {
+    let doc: Value = serde_json::from_str(include_str!(
+        "../../../../../conformance/fixtures/users-service.json"
+    ))
+    .unwrap();
+    let document = build(&doc);
+    let cases = [
+        ("GET", "/v1/users", "[]"),
+        ("GET", "/v1/limits/plain", r#"[{"limit":2,"ttl":60}]"#),
+        (
+            "POST",
+            "/v1/limits/on-status",
+            r#"[{"limit":1,"ttl":60,"status":201}]"#,
+        ),
+        (
+            "GET",
+            "/v1/limits/stacked",
+            r#"[{"limit":5,"ttl":7200},{"limit":3,"ttl":60}]"#,
+        ),
+        (
+            "GET",
+            "/v1/limits/stacked-status",
+            r#"[{"limit":1,"ttl":3600,"status":404},{"limit":2,"ttl":60}]"#,
+        ),
+    ];
+    for (method, url, expected) in cases {
+        let route = document.routes.lookup(method, url).unwrap().unwrap();
+        assert_eq!(
+            serde_json::to_string(&route.rate_limits).unwrap(),
+            expected,
+            "{method} {url}"
+        );
+    }
+}
+
+#[test]
+fn oas_18_conformance_urls_match_like_the_reference() {
+    let doc: Value = serde_json::from_str(include_str!(
+        "../../../../../conformance/fixtures/users-service.json"
+    ))
+    .unwrap();
+    let document = build(&doc);
+    // `routes::oas_18_matching_uses_the_url_path`, with the Service Prefix removed.
+    let cases = [
+        (
+            "/v1/users?redirect=/v1/users/42",
+            "UsersController_listUsers",
+        ),
+        ("/v1/users#fragment", "UsersController_listUsers"),
+        ("/v1/users/42?x=1#y", "UsersController_getUser"),
+        ("/v1/./users", "UsersController_listUsers"),
+        ("/v1/users/../users/42", "UsersController_getUser"),
+        ("/v1/users/%2e%2e/users/42", "UsersController_getUser"),
+        ("/v1/users/42/..", "UsersController_listUsers"),
+        ("/v1\\users", "UsersController_listUsers"),
+        ("/v1/users/a^b", "UsersController_getUser"),
+        ("/v1/users/a{b}", "UsersController_getUser"),
+        ("/v1/users/a|b", "UsersController_getUser"),
+        ("/v1/paths/escaped:literal?q", "PathsController_escaped"),
+    ];
+    for (url, expected) in cases {
+        let route = document.routes.lookup("GET", url).unwrap();
+        assert_eq!(
+            route.and_then(|r| r.operation_id.clone()).as_deref(),
+            Some(expected),
+            "{url}"
+        );
+    }
+}
+
+#[test]
+fn oas_19_oas_20_conformance_tables_match_like_the_reference() {
+    let doc: Value = serde_json::from_str(include_str!(
+        "../../../../../conformance/fixtures/users-service.json"
+    ))
+    .unwrap();
+    let document = build(&doc);
+    // `routes::oas_19_route_matching` and `routes::oas_20_router_path_syntax`, with the
+    // Service Prefix removed. Requests the reference rejects before matching (malformed
+    // percent-encoding, lower-case methods) are left out.
+    let cases = [
+        ("GET", "/v1/users", Some("UsersController_listUsers")),
+        ("GET", "/v1/users/", Some("UsersController_listUsers")),
+        ("GET", "/v1/users//", None),
+        ("GET", "/V1/USERS", Some("UsersController_listUsers")),
+        ("GET", "/v1/users?page=2", Some("UsersController_listUsers")),
+        ("GET", "/v1/users/42", Some("UsersController_getUser")),
+        ("GET", "/v1/users/42/", Some("UsersController_getUser")),
+        ("GET", "/v1/users/42/extra", None),
+        ("GET", "/v1/users/a%2Fb", Some("UsersController_getUser")),
+        (
+            "GET",
+            "/v1/users/caf%C3%A9",
+            Some("UsersController_getUser"),
+        ),
+        ("GET", "/v1/users/a;b", Some("UsersController_getUser")),
+        ("GET", "/v1/users/me", Some("UsersController_getUser")),
+        ("GET", "/v1/users/ME", Some("UsersController_getUser")),
+        ("PUT", "/v1/users/42", Some("UsersController_replaceUser")),
+        ("PATCH", "/v1/users/42", Some("UsersController_updateUser")),
+        ("DELETE", "/v1/users/42", Some("UsersController_deleteUser")),
+        ("HEAD", "/v1/users/42", Some("UsersController_headUser")),
+        ("POST", "/v1/users/42", None),
+        ("GET", "/v1/paths/files/a", Some("PathsController_files")),
+        (
+            "GET",
+            "/v1/paths/files/a/b/c",
+            Some("PathsController_files"),
+        ),
+        ("GET", "/v1/paths/files/", None),
+        ("GET", "/v1/paths/files", None),
+        (
+            "GET",
+            "/v1/paths/optional",
+            Some("PathsController_optional"),
+        ),
+        (
+            "GET",
+            "/v1/paths/optional/5",
+            Some("PathsController_optional"),
+        ),
+        ("GET", "/v1/paths/optional/5/6", None),
+        (
+            "GET",
+            "/v1/paths/escaped:literal",
+            Some("PathsController_escaped"),
+        ),
+        ("GET", "/v1/paths/escaped%3Aliteral", None),
+        ("GET", "/v1/paths/escaped", None),
+    ];
+    for (method, url, expected) in cases {
+        let route = document.routes.lookup(method, url).unwrap();
+        assert_eq!(
+            route.and_then(|r| r.operation_id.clone()).as_deref(),
+            expected,
+            "{method} {url}"
+        );
+    }
+    let anonymous = document
+        .routes
+        .lookup("GET", "/v1/paths/anonymous/x")
+        .unwrap()
+        .unwrap();
+    assert_eq!(anonymous.operation_id, None);
+    assert_eq!(anonymous.path, "/v1/paths/anonymous/{slug}");
+}
+
+#[test]
+fn oas_19_conformance_undecodable_parameter_fails_the_lookup() {
+    // `openapi::oas_19_undecodable_parameter_fails_the_lookup`: the reference answers 500.
+    let doc = conformance_document(json!({
+        "/split": { "get": { "operationId": "split", "x-router-path": "/split/:a%A9" } }
+    }));
+    let document = build(&doc);
+    assert!(document.routes.lookup("GET", "/split/x").unwrap().is_none());
+    for url in ["/split/x%C3%A9", "/split/%C3%A9"] {
+        assert!(
+            matches!(
+                document.routes.lookup("GET", url),
+                Err(crate::route::RouteLookupError::Decode(_))
+            ),
+            "{url}"
+        );
+    }
+}
