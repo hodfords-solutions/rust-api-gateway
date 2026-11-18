@@ -258,38 +258,53 @@ async fn req_02_url_normalisation() {
             "REQ-02",
             &observed,
             &[
-        ("/svc/v1/users", "svc: GET /v1/users"),
-        ("/svc/v1/x/../users", "svc: GET /v1/users"),
-        ("/svc/v1/./users", "svc: GET /v1/users"),
-        ("/svc/v1/%2e%2e/v1/users", "svc: GET /v1/users"),
-        ("/svc/v1/.%2E/x", "svc: GET /x"),
-        ("/svc/v1/%2e/users", "svc: GET /v1/users"),
-        ("/svc/v1/users/..", "svc: GET /v1/"),
-        ("/svc/v1/users/%2E%2E", "svc: GET /v1/"),
-        ("/svc\\v1\\users", "svc: GET /v1/users"),
-        ("/svc/v1/users#frag", "svc: GET /v1/users"),
-        ("/svc/v1/users?a=1#frag", "svc: GET /v1/users?a=1"),
-        ("/svc/v1//users", "svc: GET /v1//users"),
-        ("/svc/v1/..%2fusers", "svc: GET /v1/..%2fusers"),
-        ("/svc/v1/users;x=1", "svc: GET /v1/users;x=1"),
-        ("/svc/%7Ev1", "svc: GET /%7Ev1"),
-        ("/svc/a\"b<c>d`e{f}", "svc: GET /a%22b%3Cc%3Ed%60e%7Bf%7D"),
-        ("/svc/a^b|c'd", "svc: GET /a%5Eb|c'd"),
-        ("/svc/v1/users?q='x'", "svc: GET /v1/users?q='x'"),
-        ("/../svc/v1/users", "svc: GET /v1/users"),
-        ("/svc/../../svc/v1/users", "svc: GET /v1/users"),
-        ("//svc/v1/users", "HTTP 503 {\"message\":\"Service Unavailable\",\"statusCode\":503}"),
-        ("//host/svc/v1/users", "svc: GET /v1/users"),
-        ("//host", "HTTP 503 {\"message\":\"Service Unavailable\",\"statusCode\":503}"),
-        ("/svc//v1/users", "svc: GET /users"),
-        ("/svc//v1", "svc: GET /"),
-        ("http://other.example/svc/v1/users?x=1", "svc: GET /v1/users?x=1"),
-        ("http://other.example", "HTTP 503 {\"message\":\"Service Unavailable\",\"statusCode\":503}"),
-        ("*", "HTTP 404 {\"message\":\"Cannot GET *\",\"error\":\"Not Found\",\"statusCode\":404}"),
-        ("//[bad/svc/x", "HTTP 500 {\"statusCode\":500,\"message\":\"Internal server error\"}"),
-        ("/svc/v1/\tusers", "HTTP 400 "),
-        ("routed /svc/x/../v1/users", "routed UsersController_listUsers -> /v1/users/"),
-        ("routed /svc/v1/users/42/../me", "routed UsersController_getUser -> /v1/users/me/"),
+                ("/svc/v1/users", "svc: GET /v1/users"),
+                ("/svc/v1/x/../users", "svc: GET /v1/users"),
+                ("/svc/v1/./users", "svc: GET /v1/users"),
+                ("/svc/v1/%2e%2e/v1/users", "svc: GET /v1/users"),
+                ("/svc/v1/.%2E/x", "svc: GET /x"),
+                ("/svc/v1/%2e/users", "svc: GET /v1/users"),
+                ("/svc/v1/users/..", "svc: GET /v1/"),
+                ("/svc/v1/users/%2E%2E", "svc: GET /v1/"),
+                ("/svc\\v1\\users", "svc: GET /v1/users"),
+                ("/svc/v1/users#frag", "svc: GET /v1/users"),
+                ("/svc/v1/users?a=1#frag", "svc: GET /v1/users?a=1"),
+                ("/svc/v1//users", "svc: GET /v1//users"),
+                ("/svc/v1/..%2fusers", "svc: GET /v1/..%2fusers"),
+                ("/svc/v1/users;x=1", "svc: GET /v1/users;x=1"),
+                ("/svc/%7Ev1", "svc: GET /%7Ev1"),
+                ("/svc/a\"b<c>d`e{f}", "svc: GET /a%22b%3Cc%3Ed%60e%7Bf%7D"),
+                ("/svc/a^b|c'd", "svc: GET /a%5Eb|c'd"),
+                ("/svc/v1/users?q='x'", "svc: GET /v1/users?q='x'"),
+                ("/../svc/v1/users", "svc: GET /v1/users"),
+                ("/svc/../../svc/v1/users", "svc: GET /v1/users"),
+                (
+                    "//svc/v1/users",
+                    "HTTP 503 {\"message\":\"Service Unavailable\",\"statusCode\":503}",
+                ),
+                ("//host/svc/v1/users", "svc: GET /v1/users"),
+                ("//host", "HTTP 503 {\"message\":\"Service Unavailable\",\"statusCode\":503}"),
+                ("/svc//v1/users", "svc: GET /users"),
+                ("/svc//v1", "svc: GET /"),
+                ("http://other.example/svc/v1/users?x=1", "svc: GET /v1/users?x=1"),
+                (
+                    "http://other.example",
+                    "HTTP 503 {\"message\":\"Service Unavailable\",\"statusCode\":503}",
+                ),
+                (
+                    "*",
+                    "HTTP 404 {\"message\":\"Cannot GET *\",\"error\":\"Not Found\",\"statusCode\":404}",
+                ),
+                (
+                    "//[bad/svc/x",
+                    "HTTP 500 {\"statusCode\":500,\"message\":\"Internal server error\"}",
+                ),
+                ("/svc/v1/\tusers", "HTTP 400 "),
+                ("routed /svc/x/../v1/users", "routed UsersController_listUsers -> /v1/users/"),
+                (
+                    "routed /svc/v1/users/42/../me",
+                    "routed UsersController_getUser -> /v1/users/me/",
+                ),
             ],
         );
         let mut obs = Observations::new();
@@ -1267,12 +1282,25 @@ async fn req_18_middleware_denies() {
                     recorded.header_all("auth-user-id").join(" | ")
                 ),
             ));
-            assert_table("REQ-18", &observed, &[
-        ("denied request 1", "HTTP 403 {\"message\":\"Forbidden\",\"statusCode\":403} (upstream reached: false)"),
-        ("denied request 2", "HTTP 403 {\"message\":\"Forbidden\",\"statusCode\":403} (upstream reached: false)"),
-        ("denied request 3", "HTTP 429 {\"message\":\"error.too_many_requests\"} (upstream reached: false)"),
-        ("allowed with x-test-auth-user", "HTTP 200 upstream auth-user-id: u1"),
-            ]);
+            assert_table(
+                "REQ-18",
+                &observed,
+                &[
+                    (
+                        "denied request 1",
+                        "HTTP 403 {\"message\":\"Forbidden\",\"statusCode\":403} (upstream reached: false)",
+                    ),
+                    (
+                        "denied request 2",
+                        "HTTP 403 {\"message\":\"Forbidden\",\"statusCode\":403} (upstream reached: false)",
+                    ),
+                    (
+                        "denied request 3",
+                        "HTTP 429 {\"message\":\"error.too_many_requests\"} (upstream reached: false)",
+                    ),
+                    ("allowed with x-test-auth-user", "HTTP 200 upstream auth-user-id: u1"),
+                ],
+            );
             let mut obs = Observations::new();
             obs.record("middleware denies", &observed);
             Ok(obs)

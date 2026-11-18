@@ -192,21 +192,58 @@ async fn req_19_middleware_errors() {
                 ),
             ));
         }
-        assert_table("REQ-19", &observed, &[
-        ("defaults", "401 [application/json; charset=utf-8] {\"message\":\"test middleware error\"}"),
-        ("418 with an object", "418 [application/json; charset=utf-8] {\"b\":1,\"a\":\"x\",\"n\":1}"),
-        ("400 with a message list", "400 [application/json; charset=utf-8] {\"message\":[\"a\",\"b\"],\"statusCode\":400}"),
-        ("401 with plain text", "401 [application/json; charset=utf-8] {\"statusCode\":401,\"message\":\"not json\"}"),
-        ("401 with a number", "401 [application/json; charset=utf-8] {\"statusCode\":401,\"message\":5}"),
-        ("401 with an array", "401 [application/json; charset=utf-8] [1,\"a\"]"),
-        ("401 with a JSON string", "401 [application/json; charset=utf-8] {\"statusCode\":401,\"message\":\"quoted\"}"),
-        ("401 with null", "401 [application/json; charset=utf-8] {\"statusCode\":401,\"message\":null}"),
-        ("401 with true", "401 [application/json; charset=utf-8] {\"statusCode\":401,\"message\":true}"),
-        ("401 with an empty object", "401 [application/json; charset=utf-8] {}"),
-        ("500 with an object", "500 [application/json; charset=utf-8] {\"message\":\"boom\"}"),
-        ("503 with an object", "503 [application/json; charset=utf-8] {\"message\":\"later\"}"),
-        ("302 with an object", "302 [application/json; charset=utf-8] {\"message\":\"moved\"}"),
-            ]);
+        assert_table(
+            "REQ-19",
+            &observed,
+            &[
+                (
+                    "defaults",
+                    "401 [application/json; charset=utf-8] {\"message\":\"test middleware error\"}",
+                ),
+                (
+                    "418 with an object",
+                    "418 [application/json; charset=utf-8] {\"b\":1,\"a\":\"x\",\"n\":1}",
+                ),
+                (
+                    "400 with a message list",
+                    "400 [application/json; charset=utf-8] {\"message\":[\"a\",\"b\"],\"statusCode\":400}",
+                ),
+                (
+                    "401 with plain text",
+                    "401 [application/json; charset=utf-8] {\"statusCode\":401,\"message\":\"not json\"}",
+                ),
+                (
+                    "401 with a number",
+                    "401 [application/json; charset=utf-8] {\"statusCode\":401,\"message\":5}",
+                ),
+                ("401 with an array", "401 [application/json; charset=utf-8] [1,\"a\"]"),
+                (
+                    "401 with a JSON string",
+                    "401 [application/json; charset=utf-8] {\"statusCode\":401,\"message\":\"quoted\"}",
+                ),
+                (
+                    "401 with null",
+                    "401 [application/json; charset=utf-8] {\"statusCode\":401,\"message\":null}",
+                ),
+                (
+                    "401 with true",
+                    "401 [application/json; charset=utf-8] {\"statusCode\":401,\"message\":true}",
+                ),
+                ("401 with an empty object", "401 [application/json; charset=utf-8] {}"),
+                (
+                    "500 with an object",
+                    "500 [application/json; charset=utf-8] {\"message\":\"boom\"}",
+                ),
+                (
+                    "503 with an object",
+                    "503 [application/json; charset=utf-8] {\"message\":\"later\"}",
+                ),
+                (
+                    "302 with an object",
+                    "302 [application/json; charset=utf-8] {\"message\":\"moved\"}",
+                ),
+            ],
+        );
         obs.record("middleware errors", &observed);
         drop(gw);
 
@@ -293,36 +330,118 @@ async fn req_26_malformed_percent_encoding() {
                     },
                 ));
             }
-            assert_table("REQ-26", &observed, &[
-        ("last segment", "400 [application/json; charset=utf-8] {\"message\":\"Failed to decode param '%zz'\",\"error\":\"Bad Request\",\"statusCode\":400}"),
-        ("earlier segment", "400 [application/json; charset=utf-8] {\"message\":\"Failed to decode param '%zz'\",\"error\":\"Bad Request\",\"statusCode\":400}"),
-        ("first segment", "400 [application/json; charset=utf-8] {\"message\":\"Failed to decode param '%zz'\",\"error\":\"Bad Request\",\"statusCode\":400}"),
-        ("two bad segments", "400 [application/json; charset=utf-8] {\"message\":\"Failed to decode param 'a%zz'\",\"error\":\"Bad Request\",\"statusCode\":400}"),
-        ("bad then good in one segment", "400 [application/json; charset=utf-8] {\"message\":\"Failed to decode param '%zz%41'\",\"error\":\"Bad Request\",\"statusCode\":400}"),
-        ("good then bad in one segment", "400 [application/json; charset=utf-8] {\"message\":\"Failed to decode param '%41%zz'\",\"error\":\"Bad Request\",\"statusCode\":400}"),
-        ("encoded slash before the bad one", "400 [application/json; charset=utf-8] {\"message\":\"Failed to decode param 'a%2Fb%zz'\",\"error\":\"Bad Request\",\"statusCode\":400}"),
-        ("lone percent", "400 [application/json; charset=utf-8] {\"message\":\"Failed to decode param '%'\",\"error\":\"Bad Request\",\"statusCode\":400}"),
-        ("percent and one digit", "400 [application/json; charset=utf-8] {\"message\":\"Failed to decode param '%4'\",\"error\":\"Bad Request\",\"statusCode\":400}"),
-        ("invalid UTF-8", "400 [application/json; charset=utf-8] {\"message\":\"Failed to decode param '%e9'\",\"error\":\"Bad Request\",\"statusCode\":400}"),
-        ("truncated UTF-8", "400 [application/json; charset=utf-8] {\"message\":\"Failed to decode param '%F0%9F%98'\",\"error\":\"Bad Request\",\"statusCode\":400}"),
-        ("encoded surrogate", "400 [application/json; charset=utf-8] {\"message\":\"Failed to decode param '%ED%A0%80'\",\"error\":\"Bad Request\",\"statusCode\":400}"),
-        ("overlong encoding", "400 [application/json; charset=utf-8] {\"message\":\"Failed to decode param '%C0%AF'\",\"error\":\"Bad Request\",\"statusCode\":400}"),
-        ("valid UTF-8 then bad", "400 [application/json; charset=utf-8] {\"message\":\"Failed to decode param '%C3%A9%'\",\"error\":\"Bad Request\",\"statusCode\":400}"),
-        ("trailing slash", "400 [application/json; charset=utf-8] {\"message\":\"Failed to decode param '%zz'\",\"error\":\"Bad Request\",\"statusCode\":400}"),
-        ("double slash", "400 [application/json; charset=utf-8] {\"message\":\"Failed to decode param '%zz'\",\"error\":\"Bad Request\",\"statusCode\":400}"),
-        ("quote in the segment", "400 [application/json; charset=utf-8] {\"message\":\"Failed to decode param 'a'b\\\"c%zz'\",\"error\":\"Bad Request\",\"statusCode\":400}"),
-        ("backslash in the segment", "400 [application/json; charset=utf-8] {\"message\":\"Failed to decode param 'svc\\\\%zz'\",\"error\":\"Bad Request\",\"statusCode\":400}"),
-        ("bad then dot segments", "400 [application/json; charset=utf-8] {\"message\":\"Failed to decode param '%zz'\",\"error\":\"Bad Request\",\"statusCode\":400}"),
-        ("in the query only", "forwarded /v1/users/?q=%25zz"),
-        ("in the fragment only", "forwarded /v1/users/"),
-        ("in the path with a fragment", "400 [application/json; charset=utf-8] {\"message\":\"Failed to decode param '%zz'\",\"error\":\"Bad Request\",\"statusCode\":400}"),
-        ("absolute form", "400 [application/json; charset=utf-8] {\"message\":\"Failed to decode param '%zz'\",\"error\":\"Bad Request\",\"statusCode\":400}"),
-        ("Static Request", "400 [application/json; charset=utf-8] {\"message\":\"Failed to decode param '%zz'\",\"error\":\"Bad Request\",\"statusCode\":400}"),
-        ("Bypass Request", "400 [application/json; charset=utf-8] {\"message\":\"Failed to decode param '%zz'\",\"error\":\"Bad Request\",\"statusCode\":400}"),
-        ("no service", "400 [application/json; charset=utf-8] {\"message\":\"Failed to decode param '%zz'\",\"error\":\"Bad Request\",\"statusCode\":400}"),
-        ("WebDAV method", "400 [application/json; charset=utf-8] {\"message\":\"Failed to decode param '%zz'\",\"error\":\"Bad Request\",\"statusCode\":400}"),
-        ("application route", "400 [application/json; charset=utf-8] {\"message\":\"Failed to decode param '%zz'\",\"error\":\"Bad Request\",\"statusCode\":400}"),
-            ]);
+            assert_table(
+                "REQ-26",
+                &observed,
+                &[
+                    (
+                        "last segment",
+                        "400 [application/json; charset=utf-8] {\"message\":\"Failed to decode param '%zz'\",\"error\":\"Bad Request\",\"statusCode\":400}",
+                    ),
+                    (
+                        "earlier segment",
+                        "400 [application/json; charset=utf-8] {\"message\":\"Failed to decode param '%zz'\",\"error\":\"Bad Request\",\"statusCode\":400}",
+                    ),
+                    (
+                        "first segment",
+                        "400 [application/json; charset=utf-8] {\"message\":\"Failed to decode param '%zz'\",\"error\":\"Bad Request\",\"statusCode\":400}",
+                    ),
+                    (
+                        "two bad segments",
+                        "400 [application/json; charset=utf-8] {\"message\":\"Failed to decode param 'a%zz'\",\"error\":\"Bad Request\",\"statusCode\":400}",
+                    ),
+                    (
+                        "bad then good in one segment",
+                        "400 [application/json; charset=utf-8] {\"message\":\"Failed to decode param '%zz%41'\",\"error\":\"Bad Request\",\"statusCode\":400}",
+                    ),
+                    (
+                        "good then bad in one segment",
+                        "400 [application/json; charset=utf-8] {\"message\":\"Failed to decode param '%41%zz'\",\"error\":\"Bad Request\",\"statusCode\":400}",
+                    ),
+                    (
+                        "encoded slash before the bad one",
+                        "400 [application/json; charset=utf-8] {\"message\":\"Failed to decode param 'a%2Fb%zz'\",\"error\":\"Bad Request\",\"statusCode\":400}",
+                    ),
+                    (
+                        "lone percent",
+                        "400 [application/json; charset=utf-8] {\"message\":\"Failed to decode param '%'\",\"error\":\"Bad Request\",\"statusCode\":400}",
+                    ),
+                    (
+                        "percent and one digit",
+                        "400 [application/json; charset=utf-8] {\"message\":\"Failed to decode param '%4'\",\"error\":\"Bad Request\",\"statusCode\":400}",
+                    ),
+                    (
+                        "invalid UTF-8",
+                        "400 [application/json; charset=utf-8] {\"message\":\"Failed to decode param '%e9'\",\"error\":\"Bad Request\",\"statusCode\":400}",
+                    ),
+                    (
+                        "truncated UTF-8",
+                        "400 [application/json; charset=utf-8] {\"message\":\"Failed to decode param '%F0%9F%98'\",\"error\":\"Bad Request\",\"statusCode\":400}",
+                    ),
+                    (
+                        "encoded surrogate",
+                        "400 [application/json; charset=utf-8] {\"message\":\"Failed to decode param '%ED%A0%80'\",\"error\":\"Bad Request\",\"statusCode\":400}",
+                    ),
+                    (
+                        "overlong encoding",
+                        "400 [application/json; charset=utf-8] {\"message\":\"Failed to decode param '%C0%AF'\",\"error\":\"Bad Request\",\"statusCode\":400}",
+                    ),
+                    (
+                        "valid UTF-8 then bad",
+                        "400 [application/json; charset=utf-8] {\"message\":\"Failed to decode param '%C3%A9%'\",\"error\":\"Bad Request\",\"statusCode\":400}",
+                    ),
+                    (
+                        "trailing slash",
+                        "400 [application/json; charset=utf-8] {\"message\":\"Failed to decode param '%zz'\",\"error\":\"Bad Request\",\"statusCode\":400}",
+                    ),
+                    (
+                        "double slash",
+                        "400 [application/json; charset=utf-8] {\"message\":\"Failed to decode param '%zz'\",\"error\":\"Bad Request\",\"statusCode\":400}",
+                    ),
+                    (
+                        "quote in the segment",
+                        "400 [application/json; charset=utf-8] {\"message\":\"Failed to decode param 'a'b\\\"c%zz'\",\"error\":\"Bad Request\",\"statusCode\":400}",
+                    ),
+                    (
+                        "backslash in the segment",
+                        "400 [application/json; charset=utf-8] {\"message\":\"Failed to decode param 'svc\\\\%zz'\",\"error\":\"Bad Request\",\"statusCode\":400}",
+                    ),
+                    (
+                        "bad then dot segments",
+                        "400 [application/json; charset=utf-8] {\"message\":\"Failed to decode param '%zz'\",\"error\":\"Bad Request\",\"statusCode\":400}",
+                    ),
+                    ("in the query only", "forwarded /v1/users/?q=%25zz"),
+                    ("in the fragment only", "forwarded /v1/users/"),
+                    (
+                        "in the path with a fragment",
+                        "400 [application/json; charset=utf-8] {\"message\":\"Failed to decode param '%zz'\",\"error\":\"Bad Request\",\"statusCode\":400}",
+                    ),
+                    (
+                        "absolute form",
+                        "400 [application/json; charset=utf-8] {\"message\":\"Failed to decode param '%zz'\",\"error\":\"Bad Request\",\"statusCode\":400}",
+                    ),
+                    (
+                        "Static Request",
+                        "400 [application/json; charset=utf-8] {\"message\":\"Failed to decode param '%zz'\",\"error\":\"Bad Request\",\"statusCode\":400}",
+                    ),
+                    (
+                        "Bypass Request",
+                        "400 [application/json; charset=utf-8] {\"message\":\"Failed to decode param '%zz'\",\"error\":\"Bad Request\",\"statusCode\":400}",
+                    ),
+                    (
+                        "no service",
+                        "400 [application/json; charset=utf-8] {\"message\":\"Failed to decode param '%zz'\",\"error\":\"Bad Request\",\"statusCode\":400}",
+                    ),
+                    (
+                        "WebDAV method",
+                        "400 [application/json; charset=utf-8] {\"message\":\"Failed to decode param '%zz'\",\"error\":\"Bad Request\",\"statusCode\":400}",
+                    ),
+                    (
+                        "application route",
+                        "400 [application/json; charset=utf-8] {\"message\":\"Failed to decode param '%zz'\",\"error\":\"Bad Request\",\"statusCode\":400}",
+                    ),
+                ],
+            );
             let mut obs = Observations::new();
             obs.record("malformed percent-encoding", &observed);
             Ok(obs)
