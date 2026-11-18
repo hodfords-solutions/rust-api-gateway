@@ -10,6 +10,7 @@ mod errors;
 mod forwarding;
 mod mcp;
 mod openapi;
+mod pipeline;
 mod pool;
 mod rate_limit;
 mod routes;
