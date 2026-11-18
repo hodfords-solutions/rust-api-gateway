@@ -176,10 +176,16 @@ mod tests {
     #[tokio::test]
     async fn ex_06_sample_routes() {
         let response = routes()
-            .oneshot(Request::get("/oauth/metadata?x=1").body(Body::empty()).unwrap())
+            .oneshot(
+                Request::get("/oauth/metadata?x=1")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
             .await
             .unwrap();
-        let body = axum::body::to_bytes(response.into_body(), 1024).await.unwrap();
+        let body = axum::body::to_bytes(response.into_body(), 1024)
+            .await
+            .unwrap();
         assert_eq!(&body[..], b"Oauth: /oauth/metadata?x=1");
     }
 }
