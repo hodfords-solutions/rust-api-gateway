@@ -19,6 +19,14 @@ The MCP server (area 08) is behind the cargo feature `mcp` of `rust-gateway`. `r
 cargo clippy -p rust-gateway --all-targets -- -D warnings && cargo test -p rust-gateway
 ```
 
+OpenTelemetry tracing (area 09) is behind the cargo feature `otel` of `rust-gateway`, also enabled by `rust-gateway-server` (its default feature `otel`; it starts tracing when `OTLP_URL` is set, with `SERVICE_NAME` as the service name). Check it alone with:
+
+```bash
+cargo clippy -p rust-gateway --all-targets --features otel -- -D warnings && cargo test -p rust-gateway --features otel
+```
+
+Its tests (`tests/otel.rs`) collect spans with an in-memory exporter and need no collector. To run the Conformance Tests against a server built without it, build with `cargo build -p rust-gateway-server --no-default-features`.
+
 `cargo test` runs the unit tests (including the harness's own tests of the mock upstream and the raw client) and the Rust-only integration tests in `crates/rust-gateway/tests/`, which serve the gateway in-process. Those that need Redis (`rate_limit_redis_*.rs`, `gateway_rate_limit.rs`) find it like the harness does (`CONFORMANCE_REDIS_HOST`, `CONFORMANCE_REDIS_PORT`) and print `SKIP` when it is not reachable; `RATE_LIMIT_REQUIRE_REDIS=1` makes them fail instead, as CI does. The Conformance Tests are behind the cargo feature `conformance` because they need Node, Redis and a built reference app.
 
 ## Conformance Tests
