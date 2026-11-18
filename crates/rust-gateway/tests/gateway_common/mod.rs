@@ -329,3 +329,161 @@ pub fn client() -> reqwest::Client {
         .build()
         .expect("client")
 }
+
+/// Sends `request` (raw bytes, sent exactly as given) on a new connection and returns every
+/// byte received until the gateway closes the connection or `wait` passes. The gateway may
+/// close the connection before the whole request is written; what it answered is still
+/// returned.
+pub async fn raw_send(addr: SocketAddr, request: &[u8], wait: Duration) -> Vec<u8> {
+    use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _};
+    let mut stream = tokio::net::TcpStream::connect(addr).await.expect("connect");
+    let _ = stream.write_all(request).await;
+    let mut answer = Vec::new();
+    let _ = tokio::time::timeout(wait, stream.read_to_end(&mut answer)).await;
+    answer
+}
+
+/// Whether the peer closes `stream` (or resets it) within `wait`, discarding what it sends.
+pub async fn closed_within(
+    stream: &mut (impl tokio::io::AsyncRead + Unpin),
+    wait: Duration,
+) -> bool {
+    use tokio::io::AsyncReadExt as _;
+    let deadline = tokio::time::Instant::now() + wait;
+    let mut buffer = [0u8; 4096];
+    loop {
+        match tokio::time::timeout_at(deadline, stream.read(&mut buffer)).await {
+            Err(_) => return false,
+            Ok(Ok(0) | Err(_)) => return true,
+            Ok(Ok(_)) => {}
+        }
+    }
+}
+
+/// One response read off the wire by [`parse_responses`].
+#[derive(Debug, Clone)]
+pub struct RawResponse {
+    pub status: u16,
+    /// Header lines in wire order, names lower-cased.
+    pub headers: Vec<(String, String)>,
+    pub body: Vec<u8>,
+}
+
+impl RawResponse {
+    pub fn header(&self, name: &str) -> Option<&str> {
+        self.headers
+            .iter()
+            .find(|(n, _)| n == name)
+            .map(|(_, v)| v.as_str())
+    }
+
+    pub fn text(&self) -> String {
+        String::from_utf8_lossy(&self.body).into_owned()
+    }
+}
+
+/// Splits raw bytes received on one connection into the responses they hold, following
+/// `Content-Length` and chunked framing (a response without either runs to the end). An
+/// incomplete trailing response is returned with what arrived of it.
+pub fn parse_responses(mut bytes: &[u8]) -> Vec<RawResponse> {
+    fn find(haystack: &[u8], needle: &[u8]) -> Option<usize> {
+        haystack.windows(needle.len()).position(|w| w == needle)
+    }
+    let mut out = Vec::new();
+    while let Some(end) = find(bytes, b"\r\n\r\n") {
+        let head = String::from_utf8_lossy(&bytes[..end]).into_owned();
+        bytes = &bytes[end + 4..];
+        let mut lines = head.split("\r\n");
+        let status = lines
+            .next()
+            .and_then(|line| line.split(' ').nth(1))
+            .and_then(|code| code.parse().ok())
+            .unwrap_or(0);
+        let headers: Vec<(String, String)> = lines
+            .filter_map(|line| line.split_once(':'))
+            .map(|(n, v)| (n.to_ascii_lowercase(), v.trim().to_string()))
+            .collect();
+        let get = |name: &str| {
+            headers
+                .iter()
+                .find(|(n, _)| n == name)
+                .map(|(_, v)| v.clone())
+        };
+        let mut body = Vec::new();
+        if (100..200).contains(&status) || status == 204 || status == 304 {
+            // No body.
+        } else if get("transfer-encoding").is_some_and(|v| v.eq_ignore_ascii_case("chunked")) {
+            loop {
+                let Some(line_end) = find(bytes, b"\r\n") else {
+                    bytes = &[];
+                    break;
+                };
+                let size = std::str::from_utf8(&bytes[..line_end])
+                    .ok()
+                    .and_then(|s| usize::from_str_radix(s.split(';').next()?.trim(), 16).ok())
+                    .unwrap_or(0);
+                bytes = &bytes[line_end + 2..];
+                if size == 0 {
+                    let trailer_end = find(bytes, b"\r\n").map_or(bytes.len(), |i| i + 2);
+                    bytes = &bytes[trailer_end..];
+                    break;
+                }
+                let take = size.min(bytes.len());
+                body.extend_from_slice(&bytes[..take]);
+                bytes = &bytes[(take + 2).min(bytes.len())..];
+            }
+        } else if let Some(length) = get("content-length").and_then(|v| v.parse::<usize>().ok()) {
+            let take = length.min(bytes.len());
+            body.extend_from_slice(&bytes[..take]);
+            bytes = &bytes[take..];
+        } else {
+            body.extend_from_slice(bytes);
+            bytes = &[];
+        }
+        out.push(RawResponse {
+            status,
+            headers,
+            body,
+        });
+    }
+    out
+}
+
+/// A listener that accepts connections and never answers, counting them: an address a client
+/// must not be able to make the gateway contact.
+pub struct Sink {
+    pub addr: SocketAddr,
+    accepted: Arc<AtomicU64>,
+    task: tokio::task::JoinHandle<()>,
+}
+
+impl Sink {
+    pub async fn start() -> Self {
+        let listener = TcpListener::bind("127.0.0.1:0").await.expect("bind sink");
+        let addr = listener.local_addr().expect("sink address");
+        let accepted = Arc::new(AtomicU64::new(0));
+        let counter = Arc::clone(&accepted);
+        let task = tokio::spawn(async move {
+            let mut held = Vec::new();
+            while let Ok((socket, _)) = listener.accept().await {
+                counter.fetch_add(1, Ordering::SeqCst);
+                held.push(socket);
+            }
+        });
+        Self {
+            addr,
+            accepted,
+            task,
+        }
+    }
+
+    pub fn accepted(&self) -> u64 {
+        self.accepted.load(Ordering::SeqCst)
+    }
+}
+
+impl Drop for Sink {
+    fn drop(&mut self) {
+        self.task.abort();
+    }
+}
