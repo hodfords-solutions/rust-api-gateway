@@ -1,0 +1,14 @@
+{
+  "rust": {
+    "status": 401,
+    "bytes": 43,
+    "sha256": "e1654c7ad9ce4df238c7c18cafe8b85a27ac81155501831fcb1583963308e9a5",
+    "body": "{\"message\":\"Unauthorized\",\"statusCode\":401}"
+  },
+  "reference": {
+    "status": 401,
+    "bytes": 43,
+    "sha256": "e1654c7ad9ce4df238c7c18cafe8b85a27ac81155501831fcb1583963308e9a5",
+    "body": "{\"message\":\"Unauthorized\",\"statusCode\":401}"
+  }
+}
