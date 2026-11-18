@@ -35,16 +35,21 @@ jobs:
       - run: cargo clippy --workspace --all-targets --all-features -- -D warnings
 
   test:
-    name: Unit tests
+    name: Unit and integration tests
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
+      - name: Start Redis
+        run: docker compose -f conformance/docker-compose.yml up -d --wait
+      # The Redis-backed integration tests skip without Redis; here they must run.
       - run: cargo test --workspace
+        env:
+          RATE_LIMIT_REQUIRE_REDIS: "1"
 
   conformance:
-    name: Conformance (reference)
+    name: Conformance (reference and rust)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -63,9 +68,13 @@ jobs:
       - name: Build the reference app
         working-directory: conformance/reference
         run: pnpm install --frozen-lockfile && pnpm build
-      - name: Run the Conformance Tests against the reference
+      - name: Build rust-gateway-server
+        run: cargo build -p rust-gateway-server
+      # `both` runs every scenario against the reference, the scenarios whose IDs are in
+      # conformance/rust-implemented.txt against rust-gateway-server too, and compares them.
+      - name: Run the Conformance Tests against both targets
         env:
-          CONFORMANCE_TARGET: reference
+          CONFORMANCE_TARGET: both
         run: cargo test -p conformance --features conformance
       - name: Upload gateway logs
         if: failure()

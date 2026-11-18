@@ -13,7 +13,7 @@ cargo clippy --workspace --all-targets --all-features -- -D warnings
 cargo test --workspace
 ```
 
-`cargo test` runs unit tests only, including the harness's own tests of the mock upstream and the raw client. The Conformance Tests are behind the cargo feature `conformance` because they need Node, Redis and a built reference app.
+`cargo test` runs the unit tests (including the harness's own tests of the mock upstream and the raw client) and the Rust-only integration tests in `crates/rust-gateway/tests/`, which serve the gateway in-process. Those that need Redis (`rate_limit_redis_*.rs`, `gateway_rate_limit.rs`) find it like the harness does (`CONFORMANCE_REDIS_HOST`, `CONFORMANCE_REDIS_PORT`) and print `SKIP` when it is not reachable; `RATE_LIMIT_REQUIRE_REDIS=1` makes them fail instead, as CI does. The Conformance Tests are behind the cargo feature `conformance` because they need Node, Redis and a built reference app.
 
 ## Conformance Tests
 
