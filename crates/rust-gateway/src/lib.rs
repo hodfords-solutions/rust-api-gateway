@@ -8,3 +8,7 @@
 //! `docs/parity/` for the Parity Checklist and `CONTEXT.md` for vocabulary.
 //!
 //! This crate is pre-parity: no gateway behaviour is implemented yet.
+
+pub mod openapi;
+pub mod route;
+pub mod upstream;
