@@ -23,20 +23,20 @@
 use std::collections::HashSet;
 use std::sync::Arc;
 
+use api_gateway::Gateway;
+use api_gateway::error::JSON_UTF8;
+use api_gateway::handler::{
+    BoxError, GatewayRequest, IdentityContext, IdentityResolver, MiddlewareError, ProxyMiddleware,
+    WsProxyMiddleware, async_trait,
+};
+use api_gateway::rate_limit::Identity;
+use api_gateway::request::ProxyRequest;
+use api_gateway::route::Route;
 use axum::Router;
 use axum::body::Body;
 use axum::routing::get;
 use http::{HeaderValue, Response, StatusCode, header};
 use jsonwebtoken::{Algorithm, DecodingKey, Validation};
-use rust_gateway::Gateway;
-use rust_gateway::error::JSON_UTF8;
-use rust_gateway::handler::{
-    BoxError, GatewayRequest, IdentityContext, IdentityResolver, MiddlewareError, ProxyMiddleware,
-    WsProxyMiddleware, async_trait,
-};
-use rust_gateway::rate_limit::Identity;
-use rust_gateway::request::ProxyRequest;
-use rust_gateway::route::Route;
 use serde::Deserialize;
 use serde_json::json;
 
@@ -195,9 +195,9 @@ impl IdentityResolver for UserOrAddress {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use api_gateway::rate_limit::Identity;
     use http::{HeaderMap, Method, Uri};
     use jsonwebtoken::{EncodingKey, Header};
-    use rust_gateway::rate_limit::Identity;
 
     const SECRET: &[u8] = b"bench-secret";
 
@@ -293,7 +293,7 @@ mod tests {
     #[tokio::test]
     async fn ex_05_identity_is_user_or_address() {
         let route_document = json!({"paths": {"/v1/orders/{id}": {"get": {}}}});
-        let built = rust_gateway::openapi::build_service_document(
+        let built = api_gateway::openapi::build_service_document(
             "http://svc/openapi.json",
             &route_document,
             &Default::default(),

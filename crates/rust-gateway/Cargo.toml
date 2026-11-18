@@ -1,10 +1,22 @@
 [package]
-name = "rust-gateway"
-description = "A Rust port of the @hodfords/nestjs-api-gateway library."
-version.workspace = true
+name = "api-gateway"
+description = "An API gateway for axum and Tokio that builds its routes from upstream OpenAPI documents, with middleware, Redis-backed rate limiting, WebSocket proxying and an optional MCP server. A Rust port of @hodfords/nestjs-api-gateway."
+version = "0.1.0"
 edition.workspace = true
 license.workspace = true
-publish.workspace = true
+publish = true
+repository = "https://github.com/hodfords-solutions/rust-api-gateway"
+readme = "../../README.md"
+keywords = ["api-gateway", "gateway", "proxy", "openapi", "rate-limit"]
+categories = ["web-programming::http-server", "network-programming"]
+# Tests, benches and their golden data stay in the repository. Several of them load
+# fixtures from outside this directory (conformance/, benches/), so they cannot build
+# from the published package, and the test data includes self-signed keys.
+exclude = ["/tests", "/benches", "/src/**/testdata"]
+
+[package.metadata.docs.rs]
+# Document the `mcp` and `otel` modules too.
+all-features = true
 
 [features]
 # Parity Checklist area 08: the MCP server (`mcp` module).

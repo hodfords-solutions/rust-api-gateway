@@ -48,6 +48,45 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "330a5ed07fa54e4702c9d6c4174f74427fc0ef6e214bbd677ae50a5099946470"
 
 [[package]]
+name = "api-gateway"
+version = "0.1.0"
+dependencies = [
+ "arc-swap",
+ "async-trait",
+ "axum",
+ "bytes",
+ "criterion",
+ "http",
+ "http-body",
+ "http-body-util",
+ "httparse",
+ "httpdate",
+ "hyper",
+ "hyper-util",
+ "indexmap",
+ "opentelemetry",
+ "opentelemetry-otlp",
+ "opentelemetry_sdk",
+ "redis",
+ "regex",
+ "reqwest",
+ "rmcp",
+ "rustls",
+ "serde",
+ "serde_json",
+ "sha1_smol",
+ "socket2",
+ "thiserror",
+ "tokio",
+ "tokio-rustls",
+ "tower",
+ "tower-service",
+ "tracing",
+ "url",
+ "webpki-roots",
+]
+
+[[package]]
 name = "arc-swap"
 version = "1.9.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1983,52 +2022,13 @@ dependencies = [
 ]
 
 [[package]]
-name = "rust-gateway"
-version = "0.0.0"
-dependencies = [
- "arc-swap",
- "async-trait",
- "axum",
- "bytes",
- "criterion",
- "http",
- "http-body",
- "http-body-util",
- "httparse",
- "httpdate",
- "hyper",
- "hyper-util",
- "indexmap",
- "opentelemetry",
- "opentelemetry-otlp",
- "opentelemetry_sdk",
- "redis",
- "regex",
- "reqwest",
- "rmcp",
- "rustls",
- "serde",
- "serde_json",
- "sha1_smol",
- "socket2",
- "thiserror",
- "tokio",
- "tokio-rustls",
- "tower",
- "tower-service",
- "tracing",
- "url",
- "webpki-roots",
-]
-
-[[package]]
 name = "rust-gateway-server"
 version = "0.0.0"
 dependencies = [
+ "api-gateway",
  "axum",
  "http",
  "jsonwebtoken",
- "rust-gateway",
  "serde",
  "serde_json",
  "tokio",

@@ -1,6 +1,6 @@
 [package]
 name = "rust-gateway-server"
-description = "Example binary embedding rust-gateway; also the Rust target of the Conformance Tests."
+description = "Example binary embedding api-gateway; also the Rust target of the Conformance Tests."
 version.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -9,13 +9,13 @@ publish.workspace = true
 [features]
 default = ["otel"]
 # Starts OpenTelemetry tracing when `OTLP_URL` is set (Parity Checklist area 09).
-otel = ["rust-gateway/otel"]
+otel = ["api-gateway/otel"]
 
 [dependencies]
+api-gateway = { path = "../rust-gateway", features = ["mcp"] }
 axum = { version = "0.8.9", default-features = false, features = ["http1", "json", "tokio"] }
 http = "1.5.0"
 jsonwebtoken = { version = "12.0.0", default-features = false, features = ["rust_crypto"] }
-rust-gateway = { path = "../rust-gateway", features = ["mcp"] }
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = { version = "1.0.154", features = ["preserve_order"] }
 tokio = { version = "1.54.1", features = ["macros", "net", "rt-multi-thread", "signal", "sync", "time"] }

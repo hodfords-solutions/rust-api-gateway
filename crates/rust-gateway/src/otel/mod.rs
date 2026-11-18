@@ -56,7 +56,7 @@ pub(crate) use server::in_request_context;
 pub(crate) use server::{Matched, record, record_matched_path, server_span};
 
 /// The instrumentation scope of the gateway's spans.
-const SCOPE: &str = "rust-gateway";
+const SCOPE: &str = "api-gateway";
 
 /// The options of [`start`]: the reference's `OpenTelemetryOptions` without its unused
 /// `minDuration`.

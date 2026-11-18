@@ -2,12 +2,12 @@
 //! `conformance/reference/src/config.ts` reads it, and the reference sample's environment
 //! configuration (EX-01, EX-02, EX-04).
 
-use rust_gateway::gateway::{DocumentOptions, GatewayOptions, PoolOptions};
-use rust_gateway::mcp::{McpOptions, ServerInfo, ToolNameContext};
-use rust_gateway::rate_limit::{
+use api_gateway::gateway::{DocumentOptions, GatewayOptions, PoolOptions};
+use api_gateway::mcp::{McpOptions, ServerInfo, ToolNameContext};
+use api_gateway::rate_limit::{
     BucketLimit, RateLimitOptions, RedisOptions, RedisTls, RedisTlsOptions, TrustProxy,
 };
-use rust_gateway::upstream::UpstreamService;
+use api_gateway::upstream::UpstreamService;
 use serde::Deserialize;
 use serde_json::{Value, json};
 

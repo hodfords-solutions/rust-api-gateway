@@ -9,16 +9,16 @@ mod rate_limit_common;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-use gateway_common::{Upstream, client, options, serve};
-use rate_limit_common::{Blackhole, Proxy, nonce};
-use rust_gateway::gateway::{Gateway, GatewayOptions};
-use rust_gateway::handler::{
+use api_gateway::gateway::{Gateway, GatewayOptions};
+use api_gateway::handler::{
     BoxError, GatewayRequest, IdentityContext, IdentityResolver, MiddlewareError, ProxyMiddleware,
     async_trait,
 };
-use rust_gateway::rate_limit::{BucketLimit, Identity, RateLimitOptions, RedisOptions, TrustProxy};
-use rust_gateway::request::ProxyRequest;
-use rust_gateway::route::Route;
+use api_gateway::rate_limit::{BucketLimit, Identity, RateLimitOptions, RedisOptions, TrustProxy};
+use api_gateway::request::ProxyRequest;
+use api_gateway::route::Route;
+use gateway_common::{Upstream, client, options, serve};
+use rate_limit_common::{Blackhole, Proxy, nonce};
 
 const INTERNAL: &str = r#"{"statusCode":500,"message":"Internal server error"}"#;
 

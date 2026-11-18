@@ -1,4 +1,4 @@
-// Golden vectors for `rust-gateway`'s `mcp` module, produced by the Reference Gateway's own
+// Golden vectors for `api-gateway`'s `mcp` module, produced by the Reference Gateway's own
 // MCP code (`McpToolRegistryService` and `McpToolExecutorService` from
 // `@hodfords/nestjs-api-gateway`, loaded from `conformance/reference/node_modules`).
 //

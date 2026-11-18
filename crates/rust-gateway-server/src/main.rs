@@ -1,4 +1,4 @@
-//! Example binary for `rust-gateway`, mirroring `src/` of the Reference Gateway repository.
+//! Example binary for `api-gateway`, mirroring `src/` of the Reference Gateway repository.
 //! It is also the `rust` target of the Conformance Tests.
 //!
 //! - With `GATEWAY_CONFIG` set, it reads that conformance configuration file as
@@ -21,12 +21,12 @@ mod telemetry;
 
 use std::process::ExitCode;
 
+use api_gateway::Gateway;
+use api_gateway::error::JSON_UTF8;
 use axum::Router;
 use axum::body::Body;
 use axum::routing::get;
 use http::{HeaderValue, Response, header};
-use rust_gateway::Gateway;
-use rust_gateway::error::JSON_UTF8;
 use serde_json::json;
 
 use crate::config::{ConfigError, ConformanceConfig, Settings};
@@ -89,7 +89,7 @@ async fn run() -> Result<(), ConfigError> {
             (settings, gateway)
         }
     };
-    let listener = rust_gateway::server::bind_dual_stack(settings.port)
+    let listener = api_gateway::server::bind_dual_stack(settings.port)
         .map_err(|e| format!("listening on port {}: {e}", settings.port))?;
     if conformance.is_some() {
         println!("conformance rust gateway listening on {}", settings.port);
@@ -125,7 +125,7 @@ fn conformance_gateway(settings: &Settings) -> Result<Gateway, ConfigError> {
                 documents.ready().await;
                 // `Object.keys(apiDocs)`: array-index prefixes first (DOC-02).
                 let services =
-                    rust_gateway::documents::page_service_order(&documents.loaded_services());
+                    api_gateway::documents::page_service_order(&documents.loaded_services());
                 let body = json!({ "services": services }).to_string();
                 let mut response = Response::new(Body::from(body));
                 response

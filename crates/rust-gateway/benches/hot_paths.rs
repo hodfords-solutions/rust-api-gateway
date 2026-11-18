@@ -1,7 +1,7 @@
 //! Micro-benchmarks of the per-request hot paths, one group per pipeline stage, called the
 //! way `proxy::run` and `proxy::forward` call them (see `crates/rust-gateway/src/proxy/`).
 //!
-//! Run with `cargo bench -p rust-gateway --bench hot_paths`; `benches/README.md` explains how
+//! Run with `cargo bench -p api-gateway --bench hot_paths`; `benches/README.md` explains how
 //! to read the groups together with the `pipeline` benchmark.
 
 mod common;
@@ -9,15 +9,15 @@ mod common;
 use std::hint::black_box;
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 
-use criterion::{Criterion, criterion_group, criterion_main};
-use http::{HeaderMap, HeaderName, HeaderValue, Method};
-use rust_gateway::openapi::build_service_document;
-use rust_gateway::rate_limit::{TrustProxy, has_status_limits, normalize_ip};
-use rust_gateway::request::{
+use api_gateway::openapi::build_service_document;
+use api_gateway::rate_limit::{TrustProxy, has_status_limits, normalize_ip};
+use api_gateway::request::{
     BodyLength, ProxyRequest, RequestClass, classify, forwarded_query, is_supported_method,
     kebab_case, malformed_path_segment, normalize_request_url, response_headers,
     strip_service_prefix, upstream_framing, upstream_request_headers, upstream_target,
 };
+use criterion::{Criterion, criterion_group, criterion_main};
+use http::{HeaderMap, HeaderName, HeaderValue, Method};
 
 use common::*;
 

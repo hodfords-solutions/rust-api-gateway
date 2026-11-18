@@ -4,10 +4,10 @@ mod rate_limit_common;
 
 use std::time::{Duration, Instant};
 
-use rate_limit_common::{limiter, nonce, options, state};
-use rust_gateway::rate_limit::{
+use api_gateway::rate_limit::{
     BucketLimit, Identity, RateLimitError, RateLimiter, RouteKey, RouteLimit, TooManyRequests,
 };
+use rate_limit_common::{limiter, nonce, options, state};
 
 fn admitted(result: &Result<(), RateLimitError>) -> bool {
     match result {

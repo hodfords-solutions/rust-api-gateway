@@ -13,10 +13,10 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-use http::{HeaderMap, HeaderValue};
-use rust_gateway::rate_limit::{
+use api_gateway::rate_limit::{
     BucketLimit, RateLimitOptions, RateLimitState, RateLimiter, RedisOptions, TrustProxy,
 };
+use http::{HeaderMap, HeaderValue};
 use tokio::net::{TcpListener, TcpStream};
 use tokio::task::JoinHandle;
 

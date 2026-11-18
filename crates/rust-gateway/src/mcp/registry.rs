@@ -197,12 +197,12 @@ impl ToolRegistry {
     pub fn refresh(&self) -> usize {
         let build = build_tools(&self.store, &self.options);
         for warning in &build.warnings {
-            tracing::warn!(target: "rust_gateway::mcp", "{warning}");
+            tracing::warn!(target: "api_gateway::mcp", "{warning}");
         }
         let count = build.tools.len();
         self.tools
             .store(Arc::new(build.tools.into_iter().map(Arc::new).collect()));
-        tracing::info!(target: "rust_gateway::mcp", "Refreshed MCP tool registry: {count} tools available");
+        tracing::info!(target: "api_gateway::mcp", "Refreshed MCP tool registry: {count} tools available");
         count
     }
 

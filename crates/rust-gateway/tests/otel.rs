@@ -14,17 +14,17 @@ use std::net::SocketAddr;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
+use api_gateway::gateway::Gateway;
+use api_gateway::openapi::{DocumentFetcher, FetchFuture, FetchedDocument};
+use api_gateway::otel::opentelemetry::trace::{SpanKind, Status};
+use api_gateway::otel::opentelemetry::{SpanId, TraceId, Value};
+use api_gateway::otel::{self, OpenTelemetryOptions, TracingGuard};
+use api_gateway::rate_limit::{BucketLimit, RateLimitOptions, TrustProxy};
+use api_gateway::upstream::UpstreamService;
 use axum::Router;
 use axum::routing::get;
 use gateway_common::{Upstream, client, options, serve};
 use opentelemetry_sdk::trace::{InMemorySpanExporter, SdkTracerProvider, SpanData};
-use rust_gateway::gateway::Gateway;
-use rust_gateway::openapi::{DocumentFetcher, FetchFuture, FetchedDocument};
-use rust_gateway::otel::opentelemetry::trace::{SpanKind, Status};
-use rust_gateway::otel::opentelemetry::{SpanId, TraceId, Value};
-use rust_gateway::otel::{self, OpenTelemetryOptions, TracingGuard};
-use rust_gateway::rate_limit::{BucketLimit, RateLimitOptions, TrustProxy};
-use rust_gateway::upstream::UpstreamService;
 use serde_json::json;
 use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _};
 use tokio::net::{TcpListener, TcpStream};
@@ -464,7 +464,7 @@ async fn otel_03_mcp_tool_call_spans() {
         "mem://svc",
         upstream.origin(),
     )]);
-    gateway_options.mcp = Some(rust_gateway::mcp::McpOptions::enabled());
+    gateway_options.mcp = Some(api_gateway::mcp::McpOptions::enabled());
     let served = serve(
         Gateway::builder(gateway_options).document_fetcher(fetcher(document)),
         true,

@@ -8,18 +8,18 @@ mod gateway_common;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
+use api_gateway::error::GatewayError;
+use api_gateway::gateway::Gateway;
+use api_gateway::handler::{
+    BoxError, GatewayRequest, MiddlewareError, ProxyMiddleware, StaticRequestPredicate, async_trait,
+};
+use api_gateway::openapi::{DocumentFetcher, FetchFuture, HttpDocumentFetcher};
+use api_gateway::request::ProxyRequest;
+use api_gateway::route::Route;
 use axum::Router;
 use axum::routing::get;
 use gateway_common::{Upstream, client, options, serve};
 use http::{Response, StatusCode};
-use rust_gateway::error::GatewayError;
-use rust_gateway::gateway::Gateway;
-use rust_gateway::handler::{
-    BoxError, GatewayRequest, MiddlewareError, ProxyMiddleware, StaticRequestPredicate, async_trait,
-};
-use rust_gateway::openapi::{DocumentFetcher, FetchFuture, HttpDocumentFetcher};
-use rust_gateway::request::ProxyRequest;
-use rust_gateway::route::Route;
 use tokio::sync::Notify;
 
 /// Fetches documents over HTTP once `gate` is opened.

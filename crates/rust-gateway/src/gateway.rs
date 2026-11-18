@@ -2,9 +2,9 @@
 //! application mounts.
 //!
 //! ```no_run
-//! use rust_gateway::gateway::{Gateway, GatewayOptions};
-//! use rust_gateway::rate_limit::{BucketLimit, RateLimitOptions, RedisOptions};
-//! use rust_gateway::upstream::UpstreamService;
+//! use api_gateway::gateway::{Gateway, GatewayOptions};
+//! use api_gateway::rate_limit::{BucketLimit, RateLimitOptions, RedisOptions};
+//! use api_gateway::upstream::UpstreamService;
 //!
 //! # async fn run() -> Result<(), Box<dyn std::error::Error>> {
 //! let options = GatewayOptions::new(
@@ -17,7 +17,7 @@
 //!     RedisOptions::new("127.0.0.1", 6379),
 //! );
 //! let gateway = Gateway::builder(options).build()?;
-//! let listener = rust_gateway::server::bind_dual_stack(3000)?;
+//! let listener = api_gateway::server::bind_dual_stack(3000)?;
 //! gateway.serve(listener, std::future::pending()).await?;
 //! # Ok(())
 //! # }

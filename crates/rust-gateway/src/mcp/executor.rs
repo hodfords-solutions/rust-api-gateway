@@ -191,7 +191,7 @@ impl ToolExecutor {
             Ok(text) => ToolResult::success(text),
             Err(Failure::Forbidden) => ToolResult::error(FORBIDDEN_TEXT),
             Err(Failure::Error(message)) => {
-                tracing::error!(target: "rust_gateway::mcp", "Tool execution failed: {name}: {message}");
+                tracing::error!(target: "api_gateway::mcp", "Tool execution failed: {name}: {message}");
                 ToolResult::error(format!("Error executing {name}: {message}"))
             }
         }

@@ -18,12 +18,12 @@ Results and the machine they were taken on: [RESULTS.md](RESULTS.md).
 ## Micro-benchmarks
 
 ```bash
-cargo bench -p rust-gateway
+cargo bench -p api-gateway
 ```
 
-About 7 minutes. One group only: `cargo bench -p rust-gateway --bench hot_paths -- route_lookup`.
-Compare a change: `cargo bench -p rust-gateway -- --save-baseline before`, change the code,
-then `cargo bench -p rust-gateway -- --baseline before`.
+About 7 minutes. One group only: `cargo bench -p api-gateway --bench hot_paths -- route_lookup`.
+Compare a change: `cargo bench -p api-gateway -- --save-baseline before`, change the code,
+then `cargo bench -p api-gateway -- --baseline before`.
 
 Inputs are realistic: the Route table is built from `fixtures/bench-service.json`, the
 282-operation document the load test also serves; headers are a browser's API request (12

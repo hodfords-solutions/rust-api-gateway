@@ -9,14 +9,14 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
+use api_gateway::gateway::{Gateway, GatewayBuilder, GatewayOptions};
+use api_gateway::rate_limit::{BucketLimit, RateLimitOptions, RedisOptions};
+use api_gateway::upstream::UpstreamService;
 use bytes::Bytes;
 use http::{Request, Response};
 use http_body_util::{BodyExt, Full};
 use hyper::body::Incoming;
 use hyper_util::rt::TokioIo;
-use rust_gateway::gateway::{Gateway, GatewayBuilder, GatewayOptions};
-use rust_gateway::rate_limit::{BucketLimit, RateLimitOptions, RedisOptions};
-use rust_gateway::upstream::UpstreamService;
 use serde_json::{Value, json};
 use tokio::net::TcpListener;
 use tokio::sync::oneshot;

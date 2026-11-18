@@ -1,14 +1,14 @@
 //! A gateway for one Upstream Service, with a proxy middleware and Redis-backed rate
-//! limiting. Run with `cargo run -p rust-gateway --example quickstart` (needs Redis on
+//! limiting. Run with `cargo run -p api-gateway --example quickstart` (needs Redis on
 //! `localhost:6379` and the upstream on `localhost:4020`).
 
-use rust_gateway::Gateway;
-use rust_gateway::gateway::GatewayOptions;
-use rust_gateway::handler::{GatewayRequest, MiddlewareError, ProxyMiddleware, async_trait};
-use rust_gateway::rate_limit::{BucketLimit, RateLimitOptions, RedisOptions};
-use rust_gateway::request::ProxyRequest;
-use rust_gateway::route::Route;
-use rust_gateway::upstream::UpstreamService;
+use api_gateway::Gateway;
+use api_gateway::gateway::GatewayOptions;
+use api_gateway::handler::{GatewayRequest, MiddlewareError, ProxyMiddleware, async_trait};
+use api_gateway::rate_limit::{BucketLimit, RateLimitOptions, RedisOptions};
+use api_gateway::request::ProxyRequest;
+use api_gateway::route::Route;
+use api_gateway::upstream::UpstreamService;
 
 struct Authentication;
 
@@ -51,7 +51,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .proxy_middleware(Authentication)
         .build()?;
 
-    let listener = rust_gateway::server::bind_dual_stack(3000)?;
+    let listener = api_gateway::server::bind_dual_stack(3000)?;
     gateway
         .serve(listener, async {
             let _ = tokio::signal::ctrl_c().await;

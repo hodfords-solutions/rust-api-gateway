@@ -6,11 +6,11 @@ mod rate_limit_common;
 
 use std::sync::Arc;
 
-use rate_limit_common::{limiter_on, nonce, options, redis_host, redis_port, state};
-use rust_gateway::rate_limit::{
+use api_gateway::rate_limit::{
     RateLimitError, RateLimiter, RateLimiterConfigError, RedisConfigError, RedisOptions, RedisTls,
     RedisTlsOptions, StoreError,
 };
+use rate_limit_common::{limiter_on, nonce, options, redis_host, redis_port, state};
 use rustls::RootCertStore;
 use rustls::pki_types::pem::PemObject;
 use rustls::pki_types::{CertificateDer, PrivateKeyDer};

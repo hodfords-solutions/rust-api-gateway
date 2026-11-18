@@ -44,7 +44,7 @@ Malformed percent-encoding in a request path never reaches matching; see REQ-26.
 
 ## Port notes
 
-Decisions the rows leave open, each checked against the reference and tested. The port is `rust-gateway`'s `route` and `openapi` modules.
+Decisions the rows leave open, each checked against the reference and tested. The port is `api-gateway`'s `route` and `openapi` modules.
 
 - **Rejected patterns.** A match pattern `path-to-regexp` rejects, whether it comes from `x-router-path` or from the OpenAPI path (`/items({id})` becomes `/items(:id)`), fails the whole document, like every other error while building the Route table: a service that never loaded answers 503, one that loaded keeps its previous Routes (OAS-03). The same holds for an operation that is `null`, an `x-router-path` that is neither a string nor a list of strings, and a `security` value that is not a list. `openapi::oas_10_rejected_pattern_fails_the_document` shows the reference doing this.
 - **Original document.** As in the reference, a changed document replaces the stored original JSON (`originDocs`) even when its Routes cannot be built, and that document is not retried until it changes again. A body that is not JSON is stored as a string.

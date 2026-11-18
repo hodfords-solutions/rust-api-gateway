@@ -6,12 +6,12 @@ mod websocket_common;
 
 use std::time::Duration;
 
+use api_gateway::gateway::Gateway;
+use api_gateway::handler::{GatewayRequest, MiddlewareError, WsProxyMiddleware, async_trait};
+use api_gateway::request::ProxyRequest;
+use api_gateway::upstream::UpstreamService;
 use gateway_common::{options, serve};
 use http::StatusCode;
-use rust_gateway::gateway::Gateway;
-use rust_gateway::handler::{GatewayRequest, MiddlewareError, WsProxyMiddleware, async_trait};
-use rust_gateway::request::ProxyRequest;
-use rust_gateway::upstream::UpstreamService;
 use tokio::io::AsyncWriteExt as _;
 use tokio::net::TcpStream;
 use websocket_common::{EchoUpstream, read_head, read_to_close, upgrade_request};
@@ -192,7 +192,7 @@ async fn the_router_alone_answers_upgrades_with_501() {
         .await
         .expect("bind");
     let addr = listener.local_addr().expect("address");
-    let server = tokio::spawn(rust_gateway::server::serve(
+    let server = tokio::spawn(api_gateway::server::serve(
         gateway.router(),
         listener,
         std::future::pending(),

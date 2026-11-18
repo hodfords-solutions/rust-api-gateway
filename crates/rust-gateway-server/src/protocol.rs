@@ -3,16 +3,16 @@
 
 use std::cmp::Ordering;
 
-use http::{Response, StatusCode};
-use rust_gateway::error::{JSON_UTF8, js_json};
-use rust_gateway::handler::{
+use api_gateway::error::{JSON_UTF8, js_json};
+use api_gateway::handler::{
     BoxError, GatewayRequest, IdentityContext, IdentityResolver, McpAuthDecision,
     McpAuthentication, MiddlewareError, ProxyMiddleware, StaticRequestPredicate, WsProxyMiddleware,
     async_trait,
 };
-use rust_gateway::rate_limit::Identity;
-use rust_gateway::request::{NodeHeaderValue, ProxyRequest, node_incoming_headers};
-use rust_gateway::route::Route;
+use api_gateway::rate_limit::Identity;
+use api_gateway::request::{NodeHeaderValue, ProxyRequest, node_incoming_headers};
+use api_gateway::route::Route;
+use http::{Response, StatusCode};
 use serde_json::{Map, Value, json};
 
 /// The value a middleware attaches to the request for `x-test-auth-user` (REQ-20): the

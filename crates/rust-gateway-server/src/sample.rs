@@ -1,17 +1,17 @@
 //! The reference sample's handlers and routes (EX-03, EX-06): `src/middleware/*.ts` and
 //! `src/app.controller.ts` of the reference repository.
 
-use axum::Router;
-use axum::extract::OriginalUri;
-use axum::routing::get;
-use rust_gateway::handler::{
+use api_gateway::handler::{
     BoxError, GatewayRequest, IdentityContext, IdentityResolver, McpAuthDecision,
     McpAuthentication, MiddlewareError, ProxyMiddleware, StaticRequestPredicate, WsProxyMiddleware,
     async_trait,
 };
-use rust_gateway::rate_limit::Identity;
-use rust_gateway::request::ProxyRequest;
-use rust_gateway::route::Route;
+use api_gateway::rate_limit::Identity;
+use api_gateway::request::ProxyRequest;
+use api_gateway::route::Route;
+use axum::Router;
+use axum::extract::OriginalUri;
+use axum::routing::get;
 
 use crate::protocol::AuthUserId;
 
@@ -133,13 +133,13 @@ mod tests {
         }
         let mut proxy_request = ProxyRequest::new();
         let mut req = request("/svc/v1/users");
-        let route = rust_gateway::route::Route {
-            method: rust_gateway::route::RouteMethod::Get,
+        let route = api_gateway::route::Route {
+            method: api_gateway::route::RouteMethod::Get,
             operation_id: None,
             description: String::new(),
             path: "/v1/users".into(),
             router_path: "/v1/users".into(),
-            pattern: rust_gateway::route::pattern::PathPattern::compile("/v1/users").unwrap(),
+            pattern: api_gateway::route::pattern::PathPattern::compile("/v1/users").unwrap(),
             rate_limits: Vec::new(),
             is_bearer_auth: false,
             is_api_key_auth: false,

@@ -4,11 +4,11 @@
 
 # Rust API Gateway
 
-`rust-gateway` is a Rust port of the [`@hodfords/nestjs-api-gateway`](https://www.npmjs.com/package/@hodfords/nestjs-api-gateway) library (the Reference Gateway, version 12.4.2). It replaces that gateway in front of unchanged NestJS upstream services: it reads each service's OpenAPI document, builds routes from it, and forwards requests with your middleware and Redis-backed rate limiting.
+[`api-gateway`](https://crates.io/crates/api-gateway) is a Rust port of the [`@hodfords/nestjs-api-gateway`](https://www.npmjs.com/package/@hodfords/nestjs-api-gateway) library (the Reference Gateway, version 12.4.2). It replaces that gateway in front of unchanged NestJS upstream services: it reads each service's OpenAPI document, builds routes from it, and forwards requests with your middleware and Redis-backed rate limiting.
 
 What clients and upstream services observe is the same as with the Reference Gateway, apart from a short list of approved [Deviations](docs/parity/README.md#deviations). That claim is tested: 113 scenarios run against both gateways and compare the results.
 
-**Status:** every feature area is implemented and every row of the [Parity Checklist](docs/parity/README.md) is closed (`done`, `deviation` or `n/a`). Not published to crates.io.
+**Status:** every feature area is implemented and every row of the [Parity Checklist](docs/parity/README.md) is closed (`done`, `deviation` or `n/a`).
 
 ## Key Features:
 
@@ -33,15 +33,18 @@ It does not add what the Reference Gateway lacks: load balancing, retries, circu
 #### Requirements
 The crate uses **edition 2024** and needs a recent stable Rust (1.88 at the least; the workspace pins `stable` in `rust-toolchain.toml`). It runs on **Tokio** and needs a **Redis** server when rate limiting is enabled.
 
-| `rust-gateway` | Reference Gateway |
+| `api-gateway` | Reference Gateway |
 |---|---|
-| `0.0.0` (unpublished) | `@hodfords/nestjs-api-gateway` 12.4.2 |
+| `0.1.x` | `@hodfords/nestjs-api-gateway` 12.4.2 |
 
 #### Install
-The crate is not on crates.io. Use a path dependency (or a `git` dependency on this repository):
+```shell
+cargo add api-gateway
+```
+The package is `api-gateway` and it is imported as `api_gateway`. A typical `Cargo.toml`:
 ```toml
 [dependencies]
-rust-gateway = { path = "../rust-api-gateway/crates/rust-gateway" }
+api-gateway = "0.1"
 tokio = { version = "1", features = ["macros", "rt-multi-thread", "signal"] }
 http = "1"
 serde_json = "1"
@@ -51,10 +54,10 @@ Add `features = ["mcp"]` for the MCP server and `features = ["otel"]` for OpenTe
 #### Configuration
 Build the gateway from `GatewayOptions` and serve it. The three arguments of `GatewayOptions::new` are required; every other field has a default.
 ```rust
-use rust_gateway::Gateway;
-use rust_gateway::gateway::{DocumentOptions, GatewayOptions};
-use rust_gateway::rate_limit::{BucketLimit, RateLimitOptions, RedisOptions};
-use rust_gateway::upstream::UpstreamService;
+use api_gateway::Gateway;
+use api_gateway::gateway::{DocumentOptions, GatewayOptions};
+use api_gateway::rate_limit::{BucketLimit, RateLimitOptions, RedisOptions};
+use api_gateway::upstream::UpstreamService;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -84,7 +87,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let gateway = Gateway::builder(options).build()?;
 
-    let listener = rust_gateway::server::bind_dual_stack(3000)?;
+    let listener = api_gateway::server::bind_dual_stack(3000)?;
     gateway
         .serve(listener, async {
             let _ = tokio::signal::ctrl_c().await;
@@ -102,12 +105,12 @@ Things to know:
 - Handlers are registered on the builder, where the NestJS library discovers decorators. Handlers of one kind run in ascending priority (`*_with_priority`, default 1), then in registration order.
 - The gateway sends no `X-Powered-By` header, where the Reference Gateway sends `X-Powered-By: Express` (Deviation D11). `GatewayBuilder::x_powered_by(true)` turns it on.
 
-A complete program is the example [`crates/rust-gateway/examples/quickstart.rs`](crates/rust-gateway/examples/quickstart.rs) (`cargo run -p rust-gateway --example quickstart`).
+A complete program is the example [`crates/rust-gateway/examples/quickstart.rs`](crates/rust-gateway/examples/quickstart.rs) (`cargo run -p api-gateway --example quickstart`).
 
 #### Redis connection
 `RedisOptions` takes the host and port. Besides those it accepts a database number, credentials and TLS settings:
 ```rust
-use rust_gateway::rate_limit::{RedisOptions, RedisTls, RedisTlsOptions};
+use api_gateway::rate_limit::{RedisOptions, RedisTls, RedisTlsOptions};
 
 let mut redis = RedisOptions::new("redis.example.com", 6380);
 redis.db = Some(0);
@@ -133,9 +136,9 @@ The example binary reads the values from the environment, with the names the Ref
 #### Custom Authentication Header
 You can handle the authentication header by implementing `ProxyMiddleware`. `handle` is called for every request that matched a Route, before it is forwarded. It returns `Ok(true)` to let the request continue, `Ok(false)` to reject it with 403, or a `MiddlewareError` to answer with a status and body of its own (any other error answers 500).
 ```rust
-use rust_gateway::handler::{GatewayRequest, MiddlewareError, ProxyMiddleware, async_trait};
-use rust_gateway::request::ProxyRequest;
-use rust_gateway::route::Route;
+use api_gateway::handler::{GatewayRequest, MiddlewareError, ProxyMiddleware, async_trait};
+use api_gateway::request::ProxyRequest;
+use api_gateway::route::Route;
 
 struct AuthenticationMiddleware;
 
@@ -172,8 +175,8 @@ path the upstream receives. `bypass_route_prefixes` match on whole path segments
 
 Similarly, you can handle WebSocket upgrades by implementing `WsProxyMiddleware`. It has the same contract, without a Route.
 ```rust
-use rust_gateway::handler::{GatewayRequest, MiddlewareError, WsProxyMiddleware, async_trait};
-use rust_gateway::request::ProxyRequest;
+use api_gateway::handler::{GatewayRequest, MiddlewareError, WsProxyMiddleware, async_trait};
+use api_gateway::request::ProxyRequest;
 
 struct WsAuthenticationMiddleware;
 
@@ -195,7 +198,7 @@ Register it with `GatewayBuilder::websocket_middleware`.
 You can declare which requests are for static files by implementing `StaticRequestPredicate`. `is_static` is called before the request is processed; a request for which any predicate returns `true` is forwarded with no Route lookup, no middleware and no rate limiting.
 
 ```rust
-use rust_gateway::handler::{BoxError, GatewayRequest, StaticRequestPredicate, async_trait};
+use api_gateway::handler::{BoxError, GatewayRequest, StaticRequestPredicate, async_trait};
 
 struct StaticRequestMiddleware;
 
@@ -307,8 +310,8 @@ Authenticated traffic is bounded per user by `custom`. Requests rejected by a pr
 A request is authenticated only when the Identity resolver returns `Identity::authenticated(key)`. `Identity::anonymous(key)` (and having no resolver at all) is treated as anonymous.
 
 ```rust
-use rust_gateway::handler::{BoxError, IdentityContext, IdentityResolver, async_trait};
-use rust_gateway::rate_limit::{BucketLimit, Identity, RateLimitOptions};
+use api_gateway::handler::{BoxError, IdentityContext, IdentityResolver, async_trait};
+use api_gateway::rate_limit::{BucketLimit, Identity, RateLimitOptions};
 
 let mut rate_limit = RateLimitOptions::new(
     true,
@@ -343,7 +346,7 @@ Every IP-based key (the all-traffic and anonymous IP buckets, and the IP fallbac
 
 The client address is the connection's peer unless you say which proxies to trust, so set `trust_proxy` (the counterpart of Express `trust proxy`) when the gateway runs behind a load balancer:
 ```rust
-use rust_gateway::rate_limit::TrustProxy;
+use api_gateway::rate_limit::TrustProxy;
 
 rate_limit.trust_proxy = TrustProxy::List(vec!["loopback".into(), "10.0.0.0/8".into()]);
 rate_limit.ipv6_subnet = Some(56);
@@ -380,7 +383,7 @@ The same identity is used for the custom global limit and for any per-endpoint `
 
 ## Coming from the NestJS library
 
-| NestJS (`@hodfords/nestjs-api-gateway`) | Rust (`rust_gateway`) |
+| NestJS (`@hodfords/nestjs-api-gateway`) | Rust (`api_gateway`) |
 |---|---|
 | `ApiGatewayModule.forRoot(option)` | `Gateway::builder(GatewayOptions)`, then `build()`, then `serve(listener, shutdown)` or `router()` |
 | `ApiServiceDetail` | `upstream::UpstreamService` |

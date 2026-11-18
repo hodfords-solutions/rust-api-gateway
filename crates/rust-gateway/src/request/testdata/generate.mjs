@@ -1,4 +1,4 @@
-// Golden vectors for `rust-gateway`'s request module, produced by the code the Reference
+// Golden vectors for `api-gateway`'s request module, produced by the code the Reference
 // Gateway actually runs: Node's WHATWG `URL`, `node:querystring`, Express 5's router and
 // `parseurl`, es-toolkit `kebabCase`, and Node's HTTP parser.
 //

@@ -6,10 +6,10 @@ mod gateway_common;
 
 use std::collections::HashMap;
 
+use api_gateway::gateway::Gateway;
+use api_gateway::openapi::{DocumentFetcher, FetchFuture, FetchedDocument};
+use api_gateway::upstream::UpstreamService;
 use gateway_common::{Upstream, client, options, serve};
-use rust_gateway::gateway::Gateway;
-use rust_gateway::openapi::{DocumentFetcher, FetchFuture, FetchedDocument};
-use rust_gateway::upstream::UpstreamService;
 use serde_json::{Value, json};
 
 /// Serves documents from memory, by URL.
@@ -244,7 +244,7 @@ mod mcp {
 
     async fn mcp_gateway(upstream: &Upstream) -> gateway_common::Served {
         let mut gateway_options = options(vec![service(upstream)]);
-        gateway_options.mcp = Some(rust_gateway::mcp::McpOptions::enabled());
+        gateway_options.mcp = Some(api_gateway::mcp::McpOptions::enabled());
         let served = serve(
             Gateway::builder(gateway_options).document_fetcher(fetcher(mcp_document())),
             true,

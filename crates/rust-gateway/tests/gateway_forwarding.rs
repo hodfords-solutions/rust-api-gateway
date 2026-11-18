@@ -6,10 +6,10 @@ mod gateway_common;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
+use api_gateway::gateway::{Gateway, PoolOptions};
+use api_gateway::openapi::{DocumentFetcher as _, HttpDocumentFetcher};
+use api_gateway::upstream::UpstreamService;
 use gateway_common::{Upstream, client, options, serve};
-use rust_gateway::gateway::{Gateway, PoolOptions};
-use rust_gateway::openapi::{DocumentFetcher as _, HttpDocumentFetcher};
-use rust_gateway::upstream::UpstreamService;
 use rustls::pki_types::pem::PemObject;
 use rustls::pki_types::{CertificateDer, PrivateKeyDer};
 

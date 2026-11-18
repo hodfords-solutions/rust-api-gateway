@@ -1,6 +1,6 @@
 # 09 OpenTelemetry
 
-The reference ships a separate package, `@hodfords/nestjs-api-gateway-opentelemetry`, with one function that starts the Node SDK with auto-instrumentation. Rust has no auto-instrumentation, so the port provides explicit spans behind the cargo feature `otel` (decided in Q22), in the module `rust_gateway::otel`. There is nothing to compare against the Reference Gateway beyond span names, so every row is tested Rust-only with an in-memory exporter (`crates/rust-gateway/tests/otel.rs`).
+The reference ships a separate package, `@hodfords/nestjs-api-gateway-opentelemetry`, with one function that starts the Node SDK with auto-instrumentation. Rust has no auto-instrumentation, so the port provides explicit spans behind the cargo feature `otel` (decided in Q22), in the module `api_gateway::otel`. There is nothing to compare against the Reference Gateway beyond span names, so every row is tested Rust-only with an in-memory exporter (`crates/rust-gateway/tests/otel.rs`).
 
 | ID | Behaviour | Reference | Test | Status |
 |---|---|---|---|---|

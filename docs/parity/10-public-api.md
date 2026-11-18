@@ -2,7 +2,7 @@
 
 ## TypeScript export → Rust
 
-Every name exported from `libs/api-gateway/index.ts`, and the one function of the separate package `@hodfords/nestjs-api-gateway-opentelemetry` (API-24), and what an application uses instead in `rust-gateway`. Rust names follow [CONTEXT.md](../../CONTEXT.md). A shorter version of this table is in the [README](../../README.md#coming-from-the-nestjs-library).
+Every name exported from `libs/api-gateway/index.ts`, and the one function of the separate package `@hodfords/nestjs-api-gateway-opentelemetry` (API-24), and what an application uses instead in `api-gateway`. Rust names follow [CONTEXT.md](../../CONTEXT.md). A shorter version of this table is in the [README](../../README.md#coming-from-the-nestjs-library).
 
 | ID | TypeScript export | Rust counterpart | Reference | Status |
 |---|---|---|---|---|

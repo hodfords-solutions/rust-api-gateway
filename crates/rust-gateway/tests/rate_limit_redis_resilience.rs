@@ -5,11 +5,11 @@ mod rate_limit_common;
 
 use std::time::{Duration, Instant};
 
-use rate_limit_common::{Blackhole, Proxy, limiter_on, nonce, options, state};
-use rust_gateway::rate_limit::{
+use api_gateway::rate_limit::{
     BucketLimit, Identity, REDIS_OPERATION_TIMEOUT, RateLimitError, RateLimiter, RedisOptions,
     RouteKey, RouteLimit, StoreError,
 };
+use rate_limit_common::{Blackhole, Proxy, limiter_on, nonce, options, state};
 
 async fn count(limiter: &RateLimiter, client: &str) -> Result<(), RateLimitError> {
     let mut s = state(limiter, client);

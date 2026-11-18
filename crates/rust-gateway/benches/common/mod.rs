@@ -7,13 +7,13 @@
 
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 
-use http::{HeaderMap, HeaderName, HeaderValue};
-use rust_gateway::openapi::{DocumentStore, SecurityKeys};
-use rust_gateway::rate_limit::{
+use api_gateway::openapi::{DocumentStore, SecurityKeys};
+use api_gateway::rate_limit::{
     BucketLimit, RateLimitOptions, RateLimiter, RedisOptions, TrustProxy,
 };
-use rust_gateway::request::ServiceSelector;
-use rust_gateway::upstream::UpstreamService;
+use api_gateway::request::ServiceSelector;
+use api_gateway::upstream::UpstreamService;
+use http::{HeaderMap, HeaderName, HeaderValue};
 
 /// The benchmark service's OpenAPI document (282 operations, 142 of them `GET`).
 pub const DOCUMENT: &str = include_str!("../../../../benches/fixtures/bench-service.json");

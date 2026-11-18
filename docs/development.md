@@ -13,16 +13,16 @@ cargo clippy --workspace --all-targets --all-features -- -D warnings
 cargo test --workspace
 ```
 
-The MCP server (area 08) is behind the cargo feature `mcp` of `rust-gateway`. `rust-gateway-server` enables it, so workspace builds always include it; check the crate without it with:
+The MCP server (area 08) is behind the cargo feature `mcp` of `api-gateway`. `rust-gateway-server` enables it, so workspace builds always include it; check the crate without it with:
 
 ```bash
-cargo clippy -p rust-gateway --all-targets -- -D warnings && cargo test -p rust-gateway
+cargo clippy -p api-gateway --all-targets -- -D warnings && cargo test -p api-gateway
 ```
 
-OpenTelemetry tracing (area 09) is behind the cargo feature `otel` of `rust-gateway`, also enabled by `rust-gateway-server` (its default feature `otel`; it starts tracing when `OTLP_URL` is set, with `SERVICE_NAME` as the service name). Check it alone with:
+OpenTelemetry tracing (area 09) is behind the cargo feature `otel` of `api-gateway`, also enabled by `rust-gateway-server` (its default feature `otel`; it starts tracing when `OTLP_URL` is set, with `SERVICE_NAME` as the service name). Check it alone with:
 
 ```bash
-cargo clippy -p rust-gateway --all-targets --features otel -- -D warnings && cargo test -p rust-gateway --features otel
+cargo clippy -p api-gateway --all-targets --features otel -- -D warnings && cargo test -p api-gateway --features otel
 ```
 
 Its tests (`tests/otel.rs`) collect spans with an in-memory exporter and need no collector. To run the Conformance Tests against a server built without it, build with `cargo build -p rust-gateway-server --no-default-features`.
@@ -100,7 +100,7 @@ Run by hand, never in CI. Details, the scenarios and how to read the numbers: [b
 Micro-benchmarks of the request hot paths (criterion, about 7 minutes):
 
 ```bash
-cargo bench -p rust-gateway
+cargo bench -p api-gateway
 ```
 
 End-to-end load test of `rust-gateway-server` against the Reference Gateway in Docker (needs Docker with 10 CPUs and Python 3). The full run takes about an hour and needs a quiet machine; the smoke run takes a few seconds per point and only proves the tooling works:
@@ -128,7 +128,7 @@ Scenarios live in `conformance/harness/tests/conformance/`, one module per area.
 ## Working rules
 
 1. **Conformance Test first.** For each feature area, write the Conformance Test and see it pass against the `reference` target before writing Rust code for it.
-2. **Then implement** in `rust-gateway` until the scenario passes against `rust` (and `both`). Add the covered IDs to `conformance/rust-implemented.txt` in the same commit.
+2. **Then implement** in `api-gateway` until the scenario passes against `rust` (and `both`). Add the covered IDs to `conformance/rust-implemented.txt` in the same commit.
 3. **Tick the row.** Every Parity Checklist row ends up naming its test in the Test column (`C (module::test_name)`, plus unit or Rust-only tests) and moves to `done`, `deviation` or `n/a` with a reason.
 4. **Deviations are Rust-only tests.** A row under an approved Deviation (`docs/parity/README.md`) is tested with a Rust-only integration test of the Rust behaviour; the reference behaviour stays recorded in the row (and may be checked with `run_reference_only`).
 5. **Checklist corrections are explicit.** When a test shows a row is wrong, fix the row in its own change and say so; do not rewrite rows silently.

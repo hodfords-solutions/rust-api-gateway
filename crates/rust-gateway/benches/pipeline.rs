@@ -27,21 +27,21 @@ mod common;
 use std::hint::black_box;
 use std::sync::Arc;
 
-use axum::body::Body;
-use criterion::{Criterion, criterion_group, criterion_main};
-use http::{HeaderMap, HeaderName, HeaderValue, Method, Request, StatusCode, Uri};
-use http_body_util::BodyExt;
-use rust_gateway::Gateway;
-use rust_gateway::gateway::GatewayOptions;
-use rust_gateway::handler::{GatewayRequest, MiddlewareError, ProxyMiddleware, async_trait};
-use rust_gateway::openapi::{DocumentFetcher, FetchFuture, FetchedDocument};
-use rust_gateway::rate_limit::{RateLimitState, RedisOptions, RouteKey};
-use rust_gateway::request::{
+use api_gateway::Gateway;
+use api_gateway::gateway::GatewayOptions;
+use api_gateway::handler::{GatewayRequest, MiddlewareError, ProxyMiddleware, async_trait};
+use api_gateway::openapi::{DocumentFetcher, FetchFuture, FetchedDocument};
+use api_gateway::rate_limit::{RateLimitState, RedisOptions, RouteKey};
+use api_gateway::request::{
     BodyLength, ProxyRequest, classify, node_remote_address, normalize_request_url,
     response_headers, strip_service_prefix, upstream_framing, upstream_request_headers,
     upstream_target,
 };
-use rust_gateway::route::Route;
+use api_gateway::route::Route;
+use axum::body::Body;
+use criterion::{Criterion, criterion_group, criterion_main};
+use http::{HeaderMap, HeaderName, HeaderValue, Method, Request, StatusCode, Uri};
+use http_body_util::BodyExt;
 use tower::ServiceExt as _;
 
 use common::*;

@@ -6,7 +6,7 @@
 //! - `SERVICE_NAME` (`serviceName`): the `service.name` of the spans. Default
 //!   `rust-gateway-server`.
 
-use rust_gateway::otel::{self, OpenTelemetryOptions, TracingGuard};
+use api_gateway::otel::{self, OpenTelemetryOptions, TracingGuard};
 
 /// Starts tracing when `OTLP_URL` is set; the guard flushes the exporter when dropped.
 pub(crate) fn start() -> Result<Option<TracingGuard>, String> {

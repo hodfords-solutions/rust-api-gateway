@@ -8,9 +8,9 @@ mod websocket_common;
 
 use std::time::Duration;
 
+use api_gateway::gateway::Gateway;
+use api_gateway::upstream::UpstreamService;
 use gateway_common::{options, serve};
-use rust_gateway::gateway::Gateway;
-use rust_gateway::upstream::UpstreamService;
 use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _};
 use tokio::net::TcpStream;
 use websocket_common::{EchoUpstream, read_head, upgrade_request};
