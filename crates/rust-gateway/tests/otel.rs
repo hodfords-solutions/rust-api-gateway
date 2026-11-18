@@ -7,6 +7,7 @@
 #![cfg(feature = "otel")]
 
 mod gateway_common;
+mod rate_limit_common;
 
 use std::collections::HashMap;
 use std::net::SocketAddr;
@@ -22,6 +23,7 @@ use rust_gateway::openapi::{DocumentFetcher, FetchFuture, FetchedDocument};
 use rust_gateway::otel::opentelemetry::trace::{SpanKind, Status};
 use rust_gateway::otel::opentelemetry::{SpanId, TraceId, Value};
 use rust_gateway::otel::{self, OpenTelemetryOptions, TracingGuard};
+use rust_gateway::rate_limit::{BucketLimit, RateLimitOptions, TrustProxy};
 use rust_gateway::upstream::UpstreamService;
 use serde_json::json;
 use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _};
@@ -643,6 +645,268 @@ async fn otel_01_otlp_exporter_posts_protobuf() {
     assert!(contains("GET /svc/v1/users"), "the server span");
 }
 
+/// The document of a service `svc` with one operation, `GET /v1/users`.
+fn users_document() -> serde_json::Value {
+    json!({
+        "openapi": "3.0.0",
+        "info": { "title": "t", "version": "1" },
+        "paths": { "/v1/users": { "get": { "operationId": "listUsers" } } }
+    })
+}
+
+/// D14 (OTEL-04): a WebSocket handshake's client span continues the client's trace (the
+/// reference's starts a new trace) and ends when the upstream's `101` arrives, while the
+/// tunnel is still open (the reference's lasts until the tunnel closes).
+#[tokio::test]
+async fn d14_websocket_handshake_span_continues_the_trace_and_ends_at_the_handshake() {
+    let _serial = SERIAL.lock().await;
+    let tracing = start_tracing();
+    let upstream = RawUpstream::start_with(true).await;
+    let service = UpstreamService::new("svc", "mem://svc", format!("http://{}", upstream.addr));
+    let served = serve(
+        Gateway::builder(options(vec![service])).document_fetcher(fetcher(users_document())),
+        true,
+    )
+    .await;
+
+    let mut stream = TcpStream::connect(served.addr).await.expect("connect");
+    stream
+        .write_all(
+            format!(
+                "GET /svc/socket HTTP/1.1\r\nHost: gw\r\ntraceparent: 00-{TRACE_ID}-{PARENT_ID}-01\r\n\
+                 Connection: Upgrade\r\nUpgrade: websocket\r\nSec-WebSocket-Version: 13\r\n\
+                 Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n\r\n"
+            )
+            .as_bytes(),
+        )
+        .await
+        .expect("send");
+    let mut head = Vec::new();
+    let mut byte = [0u8; 1];
+    while !head.ends_with(b"\r\n\r\n") {
+        let n = tokio::time::timeout(Duration::from_secs(5), stream.read(&mut byte))
+            .await
+            .expect("the 101 arrives")
+            .expect("read");
+        assert_eq!(
+            n,
+            1,
+            "closed before the 101: {:?}",
+            String::from_utf8_lossy(&head)
+        );
+        head.push(byte[0]);
+    }
+    assert!(head.starts_with(b"HTTP/1.1 101 Switching Protocols\r\n"));
+
+    // The span has ended although the tunnel is open.
+    let spans = tracing.spans(1).await;
+    assert_eq!(spans.len(), 1, "{:?}", names(&spans));
+    let client = one(&spans, SpanKind::Client);
+    assert_eq!(
+        client.span_context.trace_id(),
+        TraceId::from_hex(TRACE_ID).expect("trace id")
+    );
+    assert_eq!(
+        client.parent_span_id,
+        SpanId::from_hex(PARENT_ID).expect("span id")
+    );
+    assert!(client.parent_span_is_remote);
+    assert_eq!(int(client, "http.response.status_code"), 101);
+    let mut buffer = [0u8; 16];
+    assert!(
+        tokio::time::timeout(Duration::from_millis(300), stream.read(&mut buffer))
+            .await
+            .is_err(),
+        "the tunnel is still open"
+    );
+    stream.write_all(b"still open").await.expect("tunnel write");
+    drop(stream);
+}
+
+/// D14 (OTEL-04): only W3C Trace Context is propagated. A client's `baggage` (and any other
+/// tracing header) reaches the upstream unchanged, in its place, like any other header; the
+/// upstream receives one `traceparent`, the gateway's (see also
+/// `otel_04_incoming_context_is_continued_and_propagated`).
+#[tokio::test]
+async fn d14_only_w3c_trace_context_is_propagated() {
+    let _serial = SERIAL.lock().await;
+    let tracing = start_tracing();
+    let upstream = Upstream::start().await;
+    let served = serve(
+        Gateway::builder(options(vec![upstream.service("svc")])),
+        true,
+    )
+    .await;
+    let baggage = "k1=v1,k2=v2;p=1";
+    let b3 = format!("{TRACE_ID}-{PARENT_ID}-1");
+    let response = client()
+        .get(served.url("/svc/v1/users"))
+        .header("traceparent", format!("00-{TRACE_ID}-{PARENT_ID}-01"))
+        .header("baggage", baggage)
+        .header("b3", b3.as_str())
+        .send()
+        .await
+        .expect("response");
+    assert_eq!(response.status(), 200);
+    let _ = response.text().await;
+
+    let spans = tracing.spans(2).await;
+    let client = one(&spans, SpanKind::Client);
+    let seen = upstream.seen();
+    let headers = &seen.last().expect("forwarded").headers;
+    assert_eq!(only(headers, "traceparent"), traceparent(client));
+    assert_eq!(only(headers, "baggage"), baggage);
+    assert_eq!(only(headers, "b3"), b3);
+    let order: Vec<&str> = headers.iter().map(|(n, _)| n.as_str()).collect();
+    assert_eq!(
+        order,
+        [
+            "host",
+            "connection",
+            "baggage",
+            "b3",
+            "accept",
+            "x-forwarded-for",
+            "traceparent"
+        ]
+    );
+}
+
+/// D14 (OTEL-02, OTEL-03): attributes the reference's instrumentation sets and the port
+/// does not: `client.address` from `Forwarded`, `server.address` and `url.scheme` from
+/// `Forwarded` or `X-Forwarded-Host`, `network.peer.*` on client spans; and `url.query` is
+/// the query as received apart from the redacted values (the reference re-serialises it).
+#[tokio::test]
+async fn d14_attributes_left_out() {
+    let _serial = SERIAL.lock().await;
+    let tracing = start_tracing();
+    let upstream = Upstream::start().await;
+    let served = serve(
+        Gateway::builder(options(vec![upstream.service("svc")])),
+        true,
+    )
+    .await;
+    let response = client()
+        .get(served.url("/svc/v1/users?q=a%20b&flag&sig=s"))
+        .header(
+            "forwarded",
+            "for=192.0.2.1;host=forwarded.example;proto=https",
+        )
+        .header("x-forwarded-host", "xfh.example")
+        .send()
+        .await
+        .expect("response");
+    assert_eq!(response.status(), 200);
+    let _ = response.text().await;
+
+    let spans = tracing.spans(2).await;
+    let server = one(&spans, SpanKind::Server);
+    let client = one(&spans, SpanKind::Client);
+    assert_eq!(string(server, "client.address"), "::ffff:127.0.0.1");
+    assert_eq!(string(server, "server.address"), "127.0.0.1");
+    assert_eq!(string(server, "url.scheme"), "http");
+    assert_eq!(string(server, "url.query"), "q=a%20b&flag&sig=REDACTED");
+    for key in ["network.peer.address", "network.peer.port"] {
+        assert!(attribute(server, key).is_some(), "server span {key}");
+        assert!(attribute(client, key).is_none(), "client span {key}");
+    }
+}
+
+/// D14 (OTEL-03): an upstream that fails in the middle of its body ends the client span
+/// without an error status (the reference's undici instrumentation records the error).
+#[tokio::test]
+async fn d14_upstream_failing_mid_body_leaves_the_client_span_unset() {
+    let _serial = SERIAL.lock().await;
+    let tracing = start_tracing();
+    let listener = TcpListener::bind("127.0.0.1:0").await.expect("bind");
+    let port = listener.local_addr().expect("address").port();
+    tokio::spawn(async move {
+        while let Ok((mut stream, _)) = listener.accept().await {
+            tokio::spawn(async move {
+                let mut head = Vec::new();
+                let mut byte = [0u8; 1];
+                while !head.ends_with(b"\r\n\r\n") {
+                    match stream.read(&mut byte).await {
+                        Ok(1) => head.push(byte[0]),
+                        _ => return,
+                    }
+                }
+                let _ = stream
+                    .write_all(b"HTTP/1.1 200 OK\r\ncontent-length: 10\r\n\r\nabc")
+                    .await;
+            });
+        }
+    });
+    let service = UpstreamService::new("svc", "mem://svc", format!("http://127.0.0.1:{port}"));
+    let served = serve(
+        Gateway::builder(options(vec![service])).document_fetcher(fetcher(users_document())),
+        true,
+    )
+    .await;
+    let response = client()
+        .get(served.url("/svc/v1/users"))
+        .send()
+        .await
+        .expect("response");
+    assert_eq!(response.status(), 200);
+    assert!(response.bytes().await.is_err(), "the body is cut short");
+
+    let spans = tracing.spans(2).await;
+    let client = one(&spans, SpanKind::Client);
+    assert_eq!(client.status, Status::Unset);
+    assert!(attribute(client, "error.type").is_none());
+    assert_eq!(int(client, "http.response.status_code"), 200);
+}
+
+/// D14 (Q22): only what the gateway instruments has spans. Rate-limited requests make
+/// Redis round trips (the second is refused by its Bucket), yet the traces hold the
+/// gateway's server and client spans alone (the reference also has Express, NestJS, DNS,
+/// TCP and Redis spans).
+#[tokio::test]
+async fn d14_only_the_gateway_s_own_spans() {
+    let _serial = SERIAL.lock().await;
+    if !rate_limit_common::redis_up().await {
+        return;
+    }
+    let tracing = start_tracing();
+    let upstream = Upstream::start().await;
+    let mut gateway_options = options(vec![upstream.service("svc")]);
+    gateway_options.rate_limit = RateLimitOptions::new(
+        true,
+        BucketLimit::new(1, 60.0),
+        BucketLimit::new(1_000_000, 60.0),
+    );
+    gateway_options.rate_limit.trust_proxy = TrustProxy::All;
+    gateway_options.redis = rate_limit_common::redis_options();
+    let served = serve(Gateway::builder(gateway_options), true).await;
+    // A client address of its own, so the Bucket is this test's alone.
+    let address = format!("otel-{}", rate_limit_common::nonce());
+    for status in [200, 429] {
+        let response = client()
+            .get(served.url("/svc/v1/users"))
+            .header("x-forwarded-for", address.as_str())
+            .send()
+            .await
+            .expect("response");
+        assert_eq!(response.status(), status);
+        let _ = response.text().await;
+    }
+    let spans = tracing.spans(3).await;
+    let mut kinds: Vec<String> = spans
+        .iter()
+        .map(|s| format!("{:?} {}", s.span_kind, s.name))
+        .collect();
+    kinds.sort();
+    assert_eq!(
+        kinds,
+        [
+            "Client GET",
+            "Server GET /svc/v1/users",
+            "Server GET /svc/v1/users"
+        ]
+    );
+}
+
 /// Reads one request: its head (as text) and its body (by `content-length`).
 async fn read_request(stream: &mut TcpStream) -> (String, Vec<u8>) {
     let mut buffer = Vec::new();
@@ -673,7 +937,8 @@ async fn read_request(stream: &mut TcpStream) -> (String, Vec<u8>) {
     (head, body)
 }
 
-/// An upstream that records each request head, answers `101`, then closes.
+/// An upstream that records each request head, answers `101`, then closes (or, with
+/// [`RawUpstream::start_with`], keeps the tunnel open).
 struct RawUpstream {
     addr: SocketAddr,
     heads: Arc<Mutex<Vec<String>>>,
@@ -681,6 +946,12 @@ struct RawUpstream {
 
 impl RawUpstream {
     async fn start() -> Self {
+        Self::start_with(false).await
+    }
+
+    /// With `keep_open`, the upstream keeps the tunnel open after its `101` until the gateway
+    /// closes it.
+    async fn start_with(keep_open: bool) -> Self {
         let listener = TcpListener::bind("127.0.0.1:0").await.expect("bind");
         let addr = listener.local_addr().expect("address");
         let heads = Arc::new(Mutex::new(Vec::new()));
@@ -704,6 +975,10 @@ impl RawUpstream {
                     let _ = stream
                         .write_all(b"HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\n\r\n")
                         .await;
+                    if keep_open {
+                        let mut buffer = [0u8; 1024];
+                        while matches!(stream.read(&mut buffer).await, Ok(n) if n > 0) {}
+                    }
                 });
             }
         });
