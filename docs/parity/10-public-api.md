@@ -2,7 +2,7 @@
 
 ## TypeScript export → Rust
 
-Every name exported from `libs/api-gateway/index.ts`, and what an application uses instead in `rust-gateway`. Rust names follow [CONTEXT.md](../../CONTEXT.md). A shorter version of this table is in the [README](../../README.md#coming-from-the-nestjs-library).
+Every name exported from `libs/api-gateway/index.ts`, and the one function of the separate package `@hodfords/nestjs-api-gateway-opentelemetry` (API-24), and what an application uses instead in `rust-gateway`. Rust names follow [CONTEXT.md](../../CONTEXT.md). A shorter version of this table is in the [README](../../README.md#coming-from-the-nestjs-library).
 
 | ID | TypeScript export | Rust counterpart | Reference | Status |
 |---|---|---|---|---|
@@ -29,6 +29,7 @@ Every name exported from `libs/api-gateway/index.ts`, and what an application us
 | API-21 | `McpModule`, `McpToolRegistryService`, `McpServerService`, `McpToolExecutorService` | `Gateway::mcp_tools()`: the current tool list (`None` when MCP is disabled). The gateway starts the registry and mounts the endpoint itself; `mcp::ToolRegistry`, `mcp::ToolExecutor` and `mcp::McpEndpoint` stay public for tests and other servers | `mcp/index.ts:1-9` | done |
 | API-22 | `MCP_OPTION` | Not ported (DI token) | `mcp/constants/mcp.constant.ts:1` | n/a |
 | API-23 | `MAX_TOOL_NAME_LENGTH` | `mcp::MAX_TOOL_NAME_LENGTH` (MCP-08) | `mcp/constants/mcp.constant.ts:7` | done |
+| API-24 | `tracing(option)` with `OpenTelemetryOptions` (`otlpUrl`, `serviceName`, `minDuration`), from the package `@hodfords/nestjs-api-gateway-opentelemetry` | `otel::start(&otel::OpenTelemetryOptions { otlp_url, service_name })` (or `OpenTelemetryOptions::new`), returning an `otel::TracingGuard` to keep while tracing runs (dropping it flushes and shuts the exporter down); `otel::start_with_provider` takes an application's own provider. `minDuration` is not ported (declared, never read). Cargo feature `otel` (OTEL-01) | `libs/opentelemetry/tracing.ts:10-39`; `libs/opentelemetry/type.ts:1-5` | done |
 
 ## Example binary `rust-gateway-server`
 
