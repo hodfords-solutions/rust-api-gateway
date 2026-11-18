@@ -10,4 +10,5 @@ mod errors;
 mod forwarding;
 mod mcp;
 mod pool;
+mod rate_limit;
 mod routes;
