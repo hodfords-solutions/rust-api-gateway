@@ -68,15 +68,14 @@ jobs:
       # The toolchain file pins stable for the workspace; the script runs `cargo +nightly fuzz`.
       - name: Fuzz
         run: fuzz/scripts/run-all.sh "${{ steps.length.outputs.seconds }}" "${{ matrix.target }}"
-      - name: Show the log
-        if: always()
-        run: tail -n 60 "fuzz/logs/${{ matrix.target }}.log" || true
-      - name: Upload the failing input
+      # On failure the script prints the end of the target's log; the whole log and any
+      # failing input are kept here.
+      - name: Upload the log and the failing input
         if: failure()
         uses: actions/upload-artifact@v4
         with:
           name: fuzz-${{ matrix.target }}
           path: |
-            fuzz/artifacts/${{ matrix.target }}/
-            fuzz/logs/${{ matrix.target }}.log
+            fuzz/logs/
+            fuzz/artifacts/
           if-no-files-found: ignore

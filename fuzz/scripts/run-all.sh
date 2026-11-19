@@ -20,6 +20,11 @@ fi
 # growing into the RSS limit on targets with deep, varied recursion (route_pattern).
 export ASAN_OPTIONS="${ASAN_OPTIONS:-quarantine_size_mb=64:malloc_context_size=4}"
 
+# Build for the nightly toolchain's own host triple. cargo-fuzz otherwise defaults to the
+# triple it was itself built for, which for a prebuilt musl binary (as cargo-binstall
+# installs on Linux) cannot link the sanitizer.
+HOST="$(rustc +nightly -vV | sed -n 's/^host: //p')"
+
 python3 -I scripts/seed-corpora.py >/dev/null
 mkdir -p logs
 
@@ -33,7 +38,7 @@ max_len() {
 
 run() {
   local target="$1"
-  cargo +nightly fuzz run "$target" -- \
+  cargo +nightly fuzz run --target "$HOST" "$target" -- \
     -max_total_time="$SECONDS_PER_TARGET" \
     -max_len="$(max_len "$target")" \
     -timeout=10 \
@@ -42,7 +47,8 @@ run() {
     >"logs/$target.log" 2>&1
   local status=$?
   if [ $status -ne 0 ]; then
-    echo "FAIL $target (exit $status, see fuzz/logs/$target.log)"
+    echo "FAIL $target (exit $status, see fuzz/logs/$target.log); its last lines:"
+    tail -n 80 "logs/$target.log"
   else
     echo "ok   $target"
   fi
