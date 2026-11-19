@@ -364,45 +364,6 @@ fn host_header_is_added_when_the_client_sent_none() {
     );
 }
 
-// WS-15: the body of a refused upgrade.
-
-async fn body_of(raw: &'static [u8], head: &'static [u8]) -> Vec<u8> {
-    let response = parse_response_head(head).expect("head");
-    let mut body = UpstreamBody::new(&response, BytesMut::new());
-    let mut upstream = raw;
-    let mut out = Vec::new();
-    while let Some(data) = body.next(&mut upstream).await.expect("body") {
-        assert!(!data.is_empty(), "no empty pieces");
-        out.extend_from_slice(&data);
-    }
-    out
-}
-
-#[tokio::test]
-async fn refused_bodies_are_decoded_from_their_framing() {
-    assert_eq!(
-        body_of(
-            b"hello, extra",
-            b"HTTP/1.1 401 X\r\ncontent-length: 5\r\n\r\n"
-        )
-        .await,
-        b"hello"
-    );
-    assert_eq!(
-        body_of(
-            b"3\r\nabc\r\n2;ext=1\r\nde\r\n0\r\nx-trailer: 1\r\n\r\n",
-            b"HTTP/1.1 401 X\r\ntransfer-encoding: chunked\r\n\r\n"
-        )
-        .await,
-        b"abcde"
-    );
-    assert_eq!(
-        body_of(b"until close", b"HTTP/1.1 401 X\r\n\r\n").await,
-        b"until close"
-    );
-    assert_eq!(body_of(b"ignored", b"HTTP/1.1 304 X\r\n\r\n").await, b"");
-}
-
 // ws-request.service.spec.ts: `WsRequestService.handle` (WS-04).
 
 struct Recording {

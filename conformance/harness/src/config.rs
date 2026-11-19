@@ -35,6 +35,11 @@ pub struct GatewayConfig {
     pub bypass_route_prefixes: Option<Vec<String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub mcp: Option<Mcp>,
+    /// Harness field: the host application's `http.Server` timeouts in milliseconds
+    /// (`headersTimeout`, `requestTimeout`, `keepAliveTimeout`, `keepAliveTimeoutBuffer`,
+    /// `connectionsCheckingInterval`). Absent means Node's defaults.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub server: Option<Value>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -162,6 +167,7 @@ impl GatewayConfig {
                 parameter_filter: None,
                 tool_name: None,
             }),
+            server: None,
         }
     }
 
@@ -192,6 +198,12 @@ impl GatewayConfig {
 
     pub fn throttler(mut self, f: impl FnOnce(&mut Throttler)) -> Self {
         f(&mut self.throttler);
+        self
+    }
+
+    /// Sets the `http.Server` timeouts (see [`GatewayConfig::server`]).
+    pub fn server(mut self, server: Value) -> Self {
+        self.server = Some(server);
         self
     }
 

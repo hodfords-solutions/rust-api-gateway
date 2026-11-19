@@ -6,8 +6,12 @@
 //!
 //! 1. Sanitise (WS-02): normalise the URL, remove the `excludeHeaders`.
 //! 2. Select the Upstream Service (WS-03).
-//! 3. Run the WebSocket middleware (WS-04). A rejection, or no Upstream Service, is answered
-//!    with the error status and JSON body, and the connection closed (Deviation D1, WS-05).
+//! 3. Deviation D15: when the URL is a Route of that service (and the request is neither a
+//!    Static nor a Bypass Request), pass that Route's checks as the same request without
+//!    upgrade headers would: the Global IP Bucket, the proxy middleware, the Identity, the
+//!    Custom and Route Buckets. Then run the WebSocket middleware (WS-04). A rejection, or no
+//!    Upstream Service, is answered with the error status and JSON body, and the connection
+//!    closed (Deviation D1, WS-05).
 //! 4. Drop the connection unless it is a `GET` asking for `websocket` (WS-06).
 //! 5. Open a new plain-HTTP connection to the service host and send the upgrade request with
 //!    the full URL and every client header, middleware headers merged in (WS-07 to WS-09).
@@ -15,7 +19,8 @@
 //! 6. On `101`, answer `HTTP/1.1 101 Switching Protocols` with the upstream's headers
 //!    (WS-10) and tunnel bytes both ways, the bytes that came with either handshake first
 //!    (WS-11, WS-12), with no idle timeout (WS-13), closing each side when the other closes
-//!    (WS-14). Otherwise pass on the status line and the body, then close (WS-15).
+//!    (WS-14). Otherwise pass on the status line only, without the body, then close (WS-15,
+//!    Deviation D15).
 
 use std::net::SocketAddr;
 use std::sync::Arc;
@@ -28,16 +33,17 @@ use tokio::io::{AsyncRead, AsyncReadExt as _, AsyncWrite, AsyncWriteExt as _};
 use tokio::net::TcpStream;
 use tokio::sync::watch;
 
-use crate::error::GatewayError;
+use crate::error::{ErrorContext, GatewayError};
 use crate::gateway::Shared;
 use crate::handler::{GatewayRequest, WsProxyMiddleware};
 use crate::request::{
-    JsObject, NodeHeaderValue, ProxyRequest, is_valid_header_value, latin1, node_incoming_headers,
-    normalize_request_url,
+    JsObject, NodeHeaderValue, ProxyRequest, RequestClass, classify, is_valid_header_value, latin1,
+    node_incoming_headers, normalize_request_url, strip_service_prefix,
 };
 use crate::server::{Takeover, UpgradeHead, node_reason, rewrite_target};
 
-use super::render_error;
+use super::forward::AfterResponse;
+use super::render_error_with;
 
 /// The longest upstream response head read, like Node's default `maxHeaderSize`; a longer
 /// one fails the upgrade (WS-16).
@@ -103,9 +109,9 @@ async fn proxy(
     };
     #[cfg(not(feature = "otel"))]
     let inject = |_: &UpstreamAddress, _: &str, _: Option<&str>| Vec::new();
-    let outgoing = match prepare(shared, &head, peer, inject).await {
-        Ok(outgoing) => outgoing,
-        Err(Refusal::Reject(error)) => {
+    let (outgoing, after_response) = match prepare(shared, &head, peer, inject).await {
+        Ok(prepared) => prepared,
+        Err(Refusal::Reject(error, context)) => {
             #[cfg(feature = "otel")]
             if let Some(span) = trace.take() {
                 span.fail(&error, "ERR_INVALID_CHAR");
@@ -116,7 +122,7 @@ async fn proxy(
             {
                 tracing::error!(error = %source, "WebSocket upgrade failed");
             }
-            answer_and_close(shared, client, &error).await;
+            answer_and_close(shared, client, &error, &context).await;
             return;
         }
         // `socket.destroy()`.
@@ -148,6 +154,10 @@ async fn proxy(
             return;
         }
     };
+    // RL-16 under Deviation D15: a status-scoped Route limit counts the upstream's answer.
+    if let Some(after) = after_response {
+        after.count(response.status);
+    }
     // The client span covers the handshake, not the tunnel.
     #[cfg(feature = "otel")]
     if let Some(span) = trace.take() {
@@ -159,21 +169,22 @@ async fn proxy(
             tracing::debug!(%error, "WebSocket tunnel closed with an error");
         }
     } else {
-        refuse(client, upstream, buffer, &response, head.version).await;
+        refuse(client, upstream, &response, head.version).await;
     }
 }
 
 /// Why an upgrade is not forwarded.
 enum Refusal {
-    /// Answered with this error, then closed (Deviation D1, WS-05).
-    Reject(GatewayError),
+    /// Answered with this error, then closed (Deviation D1, WS-05); the context is the error
+    /// renderer's (RL-25).
+    Reject(GatewayError, ErrorContext),
     /// Closed with no response (WS-06).
     Drop,
 }
 
 impl From<GatewayError> for Refusal {
     fn from(error: GatewayError) -> Self {
-        Refusal::Reject(error)
+        Refusal::Reject(error, ErrorContext::new())
     }
 }
 
@@ -193,7 +204,7 @@ async fn prepare(
     head: &UpgradeHead,
     peer: SocketAddr,
     inject: impl FnOnce(&UpstreamAddress, &str, Option<&str>) -> Vec<(&'static str, String)>,
-) -> Result<Outgoing, Refusal> {
+) -> Result<(Outgoing, Option<AfterResponse>), Refusal> {
     // WS-02.
     let url = normalize_request_url(&head.target).map_err(GatewayError::internal)?;
     let exclude = &shared.options.exclude_headers;
@@ -220,13 +231,31 @@ async fn prepare(
         GatewayRequest::new(head.method.clone(), uri, url.clone(), headers, Some(peer))
             .with_version(head.version);
     let mut proxy_request = ProxyRequest::new();
-    run_middleware(
-        shared.handlers.websocket.iter(),
-        exclude,
+    let after_response = route_checks(
+        shared,
+        &prefix,
+        &head.method,
+        &url,
+        peer,
         &mut request,
         &mut proxy_request,
     )
     .await?;
+    // The Route's checks already removed the excluded names before the proxy middleware,
+    // which may have set them; they are not removed again.
+    let strip: &[String] = if after_response.is_some() {
+        &[]
+    } else {
+        exclude
+    };
+    run_middleware(
+        shared.handlers.websocket.iter(),
+        strip,
+        &mut request,
+        &mut proxy_request,
+    )
+    .await?;
+    let after_response = after_response.flatten();
 
     // WS-06.
     let incoming = node_incoming_headers(lines.iter().map(|(n, v)| (n, v)));
@@ -263,7 +292,58 @@ async fn prepare(
         &trace,
         &upstream,
     )?;
-    Ok(Outgoing { upstream, request })
+    Ok((Outgoing { upstream, request }, after_response))
+}
+
+/// Deviation D15: when the upgrade's URL is a Route of the selected service, and the request
+/// is neither a Static nor a Bypass Request, the Route's checks run as for the same request
+/// without upgrade headers ([`super::routed_checks`]). `None` when there is no such Route
+/// (a WebSocket endpoint, usually absent from OpenAPI documents), `Some` with the
+/// status-scoped counting to do otherwise.
+async fn route_checks(
+    shared: &Arc<Shared>,
+    prefix: &str,
+    method: &Method,
+    url: &str,
+    peer: SocketAddr,
+    request: &mut GatewayRequest,
+    proxy_request: &mut ProxyRequest,
+) -> Result<Option<Option<AfterResponse>>, Refusal> {
+    // The lookup comes first: it has no side effects, so upgrades to paths that are no
+    // Route call no application handler they did not call before.
+    let route = shared
+        .store
+        .route(prefix, method.as_str(), strip_service_prefix(prefix, url))
+        .map_err(GatewayError::internal)?;
+    let Some(route) = route else {
+        return Ok(None);
+    };
+    let mut is_static = false;
+    for predicate in shared.handlers.static_request.iter() {
+        if predicate
+            .is_static(request)
+            .await
+            .map_err(|e| GatewayError::Internal { source: Some(e) })?
+        {
+            is_static = true;
+            break;
+        }
+    }
+    if classify(is_static, url, &shared.options.bypass_route_prefixes) != RequestClass::Routed {
+        return Ok(None);
+    }
+    super::routed_checks(
+        shared,
+        prefix,
+        method,
+        &route,
+        Some(peer),
+        request,
+        proxy_request,
+    )
+    .await
+    .map(Some)
+    .map_err(|failure| Refusal::Reject(failure.error, failure.context))
 }
 
 /// The client's header lines without the `excludeHeaders`, matched case-insensitively
@@ -603,226 +683,37 @@ where
     tokio::try_join!(to_upstream, to_client).map(|_| ())
 }
 
-/// `ProxySocket.onResponse` (WS-15): the status line, `transfer-encoding: chunked` when the
-/// client spoke HTTP/1.1 and the upstream sent no `content-length` (the body then chunk
-/// framed), the body, and the end of the connection.
+/// `ProxySocket.onResponse` (WS-15) under Deviation D15: the client gets the status line
+/// alone and the connection is closed. The upstream's body is not passed on (nor its
+/// headers, as in the reference), so a request that only added upgrade headers cannot read
+/// what an upstream that does not upgrade answers.
 async fn refuse(
     mut client: TcpStream,
-    mut upstream: TcpStream,
-    buffer: BytesMut,
+    upstream: TcpStream,
     response: &ResponseHead,
     client_version: Version,
 ) {
-    let chunked = client_version == Version::HTTP_11 && !response.has_content_length;
-    let extra: Vec<(String, NodeHeaderValue)> = if chunked {
-        vec![(
-            "transfer-encoding".into(),
-            NodeHeaderValue::Single(b"chunked".to_vec()),
-        )]
-    } else {
-        Vec::new()
-    };
+    drop(upstream);
     let line = refusal_line(client_version, response.status, &response.reason);
-    if client.write_all(&http_head(&line, &extra)).await.is_err() {
-        return;
-    }
-    let mut body = UpstreamBody::new(response, buffer);
-    loop {
-        match body.next(&mut upstream).await {
-            Ok(Some(data)) => {
-                let framed = if chunked {
-                    let mut framed = format!("{:x}\r\n", data.len()).into_bytes();
-                    framed.extend_from_slice(&data);
-                    framed.extend_from_slice(b"\r\n");
-                    framed
-                } else {
-                    data.to_vec()
-                };
-                if client.write_all(&framed).await.is_err() {
-                    return;
-                }
-            }
-            Ok(None) => break,
-            Err(error) => {
-                // Node leaves the client connection as it is; there is nothing more to send.
-                tracing::debug!(%error, "upstream body failed after a refused upgrade");
-                return;
-            }
-        }
-    }
-    if chunked && client.write_all(b"0\r\n\r\n").await.is_err() {
-        return;
-    }
-    // `socket.destroySoon()`.
-    let _ = client.shutdown().await;
-}
-
-/// The body of an upstream response, decoded from its framing.
-struct UpstreamBody {
-    buffer: BytesMut,
-    framing: Framing,
-}
-
-enum Framing {
-    Length(u64),
-    Chunked(ChunkState),
-    UntilClose,
-    Done,
-}
-
-#[derive(Clone, Copy)]
-enum ChunkState {
-    Size,
-    Data(u64),
-    DataEnd,
-    Trailers,
-}
-
-impl UpstreamBody {
-    fn new(response: &ResponseHead, buffer: BytesMut) -> Self {
-        let length = response
-            .headers
-            .iter()
-            .find_map(|(name, value)| match value {
-                NodeHeaderValue::Single(value) if name == "content-length" => {
-                    std::str::from_utf8(value).ok()?.trim().parse::<u64>().ok()
-                }
-                _ => None,
-            });
-        let framing =
-            if matches!(response.status, 204 | 304) || (100..200).contains(&response.status) {
-                Framing::Done
-            } else if response.chunked {
-                Framing::Chunked(ChunkState::Size)
-            } else if let Some(length) = length {
-                if length == 0 {
-                    Framing::Done
-                } else {
-                    Framing::Length(length)
-                }
-            } else {
-                Framing::UntilClose
-            };
-        Self { buffer, framing }
-    }
-
-    /// The next piece of body data, or `None` at its end.
-    async fn next(
-        &mut self,
-        upstream: &mut (impl AsyncRead + Unpin),
-    ) -> std::io::Result<Option<Bytes>> {
-        loop {
-            match self.framing {
-                Framing::Done => return Ok(None),
-                Framing::Length(remaining) => {
-                    if self.buffer.is_empty() && self.fill(upstream).await? == 0 {
-                        return Err(std::io::ErrorKind::UnexpectedEof.into());
-                    }
-                    let take = usize::try_from(remaining)
-                        .unwrap_or(usize::MAX)
-                        .min(self.buffer.len());
-                    let left = remaining - take as u64;
-                    self.framing = if left == 0 {
-                        Framing::Done
-                    } else {
-                        Framing::Length(left)
-                    };
-                    return Ok(Some(self.buffer.split_to(take).freeze()));
-                }
-                Framing::UntilClose => {
-                    if self.buffer.is_empty() && self.fill(upstream).await? == 0 {
-                        self.framing = Framing::Done;
-                        return Ok(None);
-                    }
-                    return Ok(Some(self.buffer.split().freeze()));
-                }
-                Framing::Chunked(state) => {
-                    if let Some(data) = self.chunked(state, upstream).await? {
-                        return Ok(Some(data));
-                    }
-                }
-            }
-        }
-    }
-
-    /// Advances a chunked body by one step; returns data when a step produced some.
-    async fn chunked(
-        &mut self,
-        state: ChunkState,
-        upstream: &mut (impl AsyncRead + Unpin),
-    ) -> std::io::Result<Option<Bytes>> {
-        match state {
-            ChunkState::Size | ChunkState::DataEnd | ChunkState::Trailers => {
-                let line = self.line(upstream).await?;
-                self.framing = match state {
-                    ChunkState::Size => {
-                        let size = line
-                            .split(|&b| b == b';')
-                            .next()
-                            .and_then(|hex| std::str::from_utf8(hex).ok())
-                            .and_then(|hex| u64::from_str_radix(hex.trim(), 16).ok())
-                            .ok_or_else(|| invalid("bad chunk size"))?;
-                        if size == 0 {
-                            Framing::Chunked(ChunkState::Trailers)
-                        } else {
-                            Framing::Chunked(ChunkState::Data(size))
-                        }
-                    }
-                    ChunkState::DataEnd if line.is_empty() => Framing::Chunked(ChunkState::Size),
-                    ChunkState::DataEnd => return Err(invalid("chunk without CRLF")),
-                    _ if line.is_empty() => Framing::Done,
-                    _ => Framing::Chunked(ChunkState::Trailers),
-                };
-                Ok(None)
-            }
-            ChunkState::Data(remaining) => {
-                if self.buffer.is_empty() && self.fill(upstream).await? == 0 {
-                    return Err(std::io::ErrorKind::UnexpectedEof.into());
-                }
-                let take = usize::try_from(remaining)
-                    .unwrap_or(usize::MAX)
-                    .min(self.buffer.len());
-                let left = remaining - take as u64;
-                self.framing = Framing::Chunked(if left == 0 {
-                    ChunkState::DataEnd
-                } else {
-                    ChunkState::Data(left)
-                });
-                Ok(Some(self.buffer.split_to(take).freeze()))
-            }
-        }
-    }
-
-    /// One line, without its line ending.
-    async fn line(&mut self, upstream: &mut (impl AsyncRead + Unpin)) -> std::io::Result<Vec<u8>> {
-        loop {
-            if let Some(at) = self.buffer.iter().position(|&b| b == b'\n') {
-                let mut line = self.buffer.split_to(at + 1).to_vec();
-                line.pop();
-                if line.last() == Some(&b'\r') {
-                    line.pop();
-                }
-                return Ok(line);
-            }
-            if self.buffer.len() > MAX_RESPONSE_HEAD {
-                return Err(invalid("chunk line too long"));
-            }
-            if self.fill(upstream).await? == 0 {
-                return Err(std::io::ErrorKind::UnexpectedEof.into());
-            }
-        }
-    }
-
-    async fn fill(&mut self, upstream: &mut (impl AsyncRead + Unpin)) -> std::io::Result<usize> {
-        self.buffer.reserve(16 * 1024);
-        upstream.read_buf(&mut self.buffer).await
+    if client.write_all(&http_head(&line, &[])).await.is_ok() {
+        // `socket.destroySoon()`.
+        let _ = client.shutdown().await;
     }
 }
 
 /// Deviation D1 (WS-05): the rejection is answered with the error the HTTP path would give
 /// (status, headers and JSON body of the error renderer) and the connection is closed.
-async fn answer_and_close(shared: &Arc<Shared>, mut client: TcpStream, error: &GatewayError) {
-    let bytes = closing_response(render_error(shared, error), shared.x_powered_by).await;
+async fn answer_and_close(
+    shared: &Arc<Shared>,
+    mut client: TcpStream,
+    error: &GatewayError,
+    context: &ErrorContext,
+) {
+    let bytes = closing_response(
+        render_error_with(shared, error, context),
+        shared.x_powered_by,
+    )
+    .await;
     let _ = client.write_all(&bytes).await;
     let _ = client.shutdown().await;
 }
@@ -876,10 +767,9 @@ async fn closing_response(response: Response<axum::body::Body>, x_powered_by: bo
 pub(crate) mod fuzzing {
     //! The upstream side of the WebSocket proxy, for the fuzz targets.
 
-    use bytes::BytesMut;
     use http::Version;
 
-    use super::{UpstreamBody, parse_response_head, refusal_line};
+    use super::{parse_response_head, refusal_line};
 
     /// What the proxy makes of an upstream's answer to an upgrade request.
     #[derive(Debug)]
@@ -890,29 +780,15 @@ pub(crate) mod fuzzing {
         pub refusal_line: String,
         /// Node's `res.headers` names, in order.
         pub header_names: Vec<String>,
-        /// The decoded body, or the error that ended it.
-        pub body: std::io::Result<Vec<u8>>,
     }
 
-    /// Parses `head` as the upstream's response head and decodes `rest` as the bytes that
-    /// followed it on the connection, until the body ends or the bytes run out.
-    pub fn upstream_response(head: &[u8], rest: &[u8]) -> Option<UpstreamResponse> {
+    /// Parses `head` as the upstream's response head, as the proxy reads it.
+    pub fn upstream_response(head: &[u8]) -> Option<UpstreamResponse> {
         let response = parse_response_head(head)?;
-        let runtime = tokio::runtime::Builder::new_current_thread().build().ok()?;
-        let body = runtime.block_on(async {
-            let mut reader = rest;
-            let mut body = UpstreamBody::new(&response, BytesMut::new());
-            let mut out = Vec::new();
-            while let Some(data) = body.next(&mut reader).await? {
-                out.extend_from_slice(&data);
-            }
-            Ok(out)
-        });
         Some(UpstreamResponse {
             status: response.status,
             refusal_line: refusal_line(Version::HTTP_11, response.status, &response.reason),
             header_names: response.headers.iter().map(|(n, _)| n.clone()).collect(),
-            body,
         })
     }
 }

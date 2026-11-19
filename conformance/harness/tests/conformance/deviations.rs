@@ -3,6 +3,8 @@
 
 use std::time::Duration;
 
+use anyhow::Context as _;
+
 use conformance::client::{self, RawConn, ReadOutcome, Request};
 use conformance::config::GatewayConfig;
 use conformance::fixtures;
@@ -52,6 +54,69 @@ async fn d1_rejected_upgrade_hangs() {
                 );
                 obs.record(label, "no answer after 3 s, connection open");
             }
+            Ok(obs)
+        },
+    )
+    .await;
+}
+
+/// D15 (WS-04, WS-15): an upgrade request on a path that is a Route skips that Route's
+/// checks: the proxy middleware does not run (the upstream gets no `x-test-route`, which only
+/// the proxy middleware adds) and no Bucket counts it, so a client whose Global IP Bucket is
+/// full still reaches the upstream; and an upstream that does not upgrade has its body
+/// relayed. Rust: the Route's checks run and only the status line is passed on (tested
+/// Rust-only in `security_websocket.rs` and `security_rate_limit.rs`).
+#[tokio::test]
+async fn d15_upgrades_skip_route_checks_and_relay_bodies() {
+    run_reference_only(
+        "d15_upgrades_skip_route_checks_and_relay_bodies",
+        &["WS-04", "WS-15"],
+        |target| async move {
+            let (mock, gw) =
+                users_gateway(&target, |c| c.throttler(|t| t.global_ip_rate_limit = 1.0)).await?;
+            let mut obs = Observations::new();
+            let upgrade =
+                || client::upgrade_request("/svc/v1/users").header("x-test-echo-route", "1");
+
+            // The proxy middleware does not run, and the upstream's answer is relayed.
+            let mut conn = RawConn::connect(gw.addr()).await?;
+            conn.send(&upgrade()).await?;
+            let relayed = conn.read_to_close(Duration::from_secs(5)).await?;
+            let recorded = mock
+                .last_request()
+                .context("the upgrade reached the upstream")?;
+            let has_route_header = recorded
+                .headers
+                .iter()
+                .any(|(name, _)| name.eq_ignore_ascii_case("x-test-route"));
+            assert!(!has_route_header, "the proxy middleware ran");
+            obs.record("upgrade on a Route: upstream target", &recorded.target);
+            obs.record("upgrade on a Route: proxy middleware ran", has_route_header);
+            let text = String::from_utf8_lossy(&relayed).into_owned();
+            assert!(text.starts_with("HTTP/1.1 200 OK\r\n"), "{text:?}");
+            let body_relayed = text.contains("\"target\":\"/svc/v1/users\"");
+            assert!(body_relayed, "{text:?}");
+            obs.record("upstream's 200 body relayed to the client", body_relayed);
+
+            // The Global IP Bucket (limit 1) rejects plain requests, not upgrades.
+            let first = gw.send(&Request::get("/svc/v1/users")).await?;
+            let second = gw.send(&Request::get("/svc/v1/users")).await?;
+            assert_eq!((first.status, second.status), (200, 429));
+            mock.clear_requests();
+            let mut conn = RawConn::connect(gw.addr()).await?;
+            conn.send(&upgrade()).await?;
+            let after = conn.read_to_close(Duration::from_secs(5)).await?;
+            let status_line = String::from_utf8_lossy(&after)
+                .lines()
+                .next()
+                .unwrap_or_default()
+                .to_string();
+            obs.record("plain requests with the Bucket full", second.status);
+            obs.record("upgrade with the Bucket full: status line", status_line);
+            obs.record(
+                "upgrade with the Bucket full: upstream reached",
+                mock.last_request().is_some(),
+            );
             Ok(obs)
         },
     )

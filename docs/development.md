@@ -31,6 +31,8 @@ Its tests (`tests/otel.rs`) collect spans with an in-memory exporter and need no
 
 Fuzz targets for the parsers of untrusted input (nightly, cargo-fuzz) are in `fuzz/`; see [security/fuzzing.md](security/fuzzing.md).
 
+The adversarial tests (`crates/rust-gateway/tests/security_*.rs`), their coverage and the security findings they record: [security/attack-tests.md](security/attack-tests.md).
+
 ## Conformance Tests
 
 ### One-time setup
