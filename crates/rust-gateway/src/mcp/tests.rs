@@ -119,6 +119,55 @@ fn golden_registry_matches_the_reference_and_d8() {
 
 /// D8 (MCP-12): the golden vectors show where the two modes differ, so the deviation is
 /// exercised and the reference's single resolution is recorded.
+// FUZZ-04 (docs/security/fuzzing.md): under Deviation D8 a schema referenced twice from each
+// level of a chain used to expand 2^n times. Past `REPEATED_REF_BUDGET` copied values, a
+// reference repeated in the same request body resolves to `{}` as in the reference, so the
+// work stays bounded; below it, nothing changes.
+#[test]
+fn fuzz_04_shared_references_do_not_expand_exponentially() {
+    fn chain(n: usize) -> Value {
+        let mut schemas = Map::new();
+        for i in 0..n {
+            let next = format!("#/components/schemas/S{}", i + 1);
+            schemas.insert(
+                format!("S{i}"),
+                json!({"type": "object", "properties": {"a": {"$ref": next}, "b": {"$ref": next}}}),
+            );
+        }
+        schemas.insert(format!("S{n}"), json!({"type": "string"}));
+        json!({
+            "openapi": "3.0.0",
+            "paths": {"/x": {"post": {"operationId": "x", "requestBody": {"content": {
+                "application/json": {"schema": {"$ref": "#/components/schemas/S0"}}
+            }}}}},
+            "components": {"schemas": schemas}
+        })
+    }
+    let body = |n: usize| {
+        let store = store_with(&[("svc", chain(n))]);
+        let build = build_tools(&store, &McpOptions::enabled());
+        Value::Object(build.tools[0].input_schema.clone())["properties"]["body"].clone()
+    };
+
+    // Below the budget, every repeated reference still resolves (D8).
+    let small = body(3);
+    assert_eq!(
+        small["properties"]["b"]["properties"]["a"]["properties"]["b"],
+        json!({"type": "string"})
+    );
+
+    let started = std::time::Instant::now();
+    let large = serde_json::to_string(&body(64)).unwrap();
+    assert!(large.len() < 32 * 1024 * 1024, "{} bytes", large.len());
+    // Without the budget this never finishes (2^64 expansions); the limit is generous so
+    // that a loaded debug build does not trip it (about 1 s alone).
+    assert!(
+        started.elapsed() < std::time::Duration::from_secs(60),
+        "took {:?}",
+        started.elapsed()
+    );
+}
+
 #[test]
 fn d8_repeated_references_resolve_every_time() {
     let store = store_with(&[("svc", serde_json::from_str(USERS_FIXTURE).expect("fixture"))]);

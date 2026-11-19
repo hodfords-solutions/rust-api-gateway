@@ -8,6 +8,7 @@
 //! non-iterable `parameters`, a `$ref` that is not a string), which makes the whole refresh
 //! fail, the port treats the value as absent; those shapes are not supported further.
 
+use std::borrow::Cow;
 use std::collections::HashSet;
 
 use serde_json::{Map, Value, json};
@@ -102,10 +103,25 @@ fn constructor_type(name: &str) -> Option<&'static str> {
     }
 }
 
+/// The number of JSON values in `value`, itself included.
+fn value_count(value: &Value) -> usize {
+    match value {
+        Value::Object(map) => 1 + map.values().map(value_count).sum::<usize>(),
+        Value::Array(items) => 1 + items.iter().map(value_count).sum::<usize>(),
+        _ => 1,
+    }
+}
+
 /// `JSON.stringify(describeType(type))` for a warning.
 fn describe_type(value: &Value) -> String {
     Value::String(js::string(value)).to_string()
 }
+
+/// How many JSON values the schemas of one document may copy before Deviation D8 stops
+/// resolving repeated references (FUZZ-04). Past it, a reference that already resolved in
+/// the same request body resolves to `{}`, as in the reference. Real documents stay far
+/// below it; it bounds documents whose references expand exponentially.
+pub(crate) const REPEATED_REF_BUDGET: usize = 200_000;
 
 /// Builds input schemas for one service's document, collecting the warnings the reference
 /// logs.
@@ -116,6 +132,10 @@ pub(crate) struct SchemaBuilder<'a> {
     /// reproduces the reference, where every reference resolves once per request body.
     pub(crate) resolve_repeated_refs: bool,
     pub(crate) warnings: Vec<String>,
+    /// JSON values copied into schemas so far, for [`REPEATED_REF_BUDGET`].
+    copied: usize,
+    /// The references resolved in the current request body.
+    body_refs: HashSet<String>,
 }
 
 impl<'a> SchemaBuilder<'a> {
@@ -124,6 +144,8 @@ impl<'a> SchemaBuilder<'a> {
             document,
             resolve_repeated_refs: true,
             warnings: Vec::new(),
+            copied: 0,
+            body_refs: HashSet::new(),
         }
     }
 
@@ -168,6 +190,7 @@ impl<'a> SchemaBuilder<'a> {
                 .and_then(|json| js::get(&json, "schema").map(|s| s.into_owned()))
                 .filter(js::truthy);
             if let Some(schema) = schema {
+                self.body_refs.clear();
                 let resolved = self.resolve(&schema, &mut HashSet::new());
                 let description = js::get(&request_body, "description")
                     .filter(|d| js::truthy(d))
@@ -276,25 +299,29 @@ impl<'a> SchemaBuilder<'a> {
             if !refs.insert(reference.clone()) {
                 return Map::new();
             }
+            let repeated = !self.body_refs.insert(reference.clone());
+            if repeated && self.copied > REPEATED_REF_BUDGET {
+                return Map::new();
+            }
             let pointer = reference.replacen("#/", "", 1);
-            let mut target = Some(std::borrow::Cow::Borrowed(self.document));
+            let mut target = Some(Cow::Borrowed(self.document));
             for segment in pointer.split('/') {
-                target = target.and_then(|t| {
-                    js::get(&t, segment).map(|v| std::borrow::Cow::Owned(v.into_owned()))
-                });
+                target = match target {
+                    Some(Cow::Borrowed(t)) => js::get(t, segment),
+                    Some(Cow::Owned(t)) => js::get(&t, segment).map(|v| Cow::Owned(v.into_owned())),
+                    None => None,
+                };
             }
             return match target.filter(|t| js::truthy(t)) {
-                Some(target) => {
-                    let target = target.into_owned();
-                    self.resolve(&target, refs)
-                }
+                Some(Cow::Borrowed(target)) => self.resolve(target, refs),
+                Some(Cow::Owned(target)) => self.resolve(&target, refs),
                 None => Map::new(),
             };
         }
 
         if let Some(properties) = js::get(schema, "properties").filter(|p| js::truthy(p)) {
             let properties = properties.into_owned();
-            let mut resolved = js::spread(schema);
+            let mut resolved = self.spread(schema);
             self.normalize_type_in_place(&mut resolved);
             let mut out = Map::new();
             for (key, value) in js::for_in(&properties) {
@@ -307,16 +334,22 @@ impl<'a> SchemaBuilder<'a> {
 
         if let Some(items) = js::get(schema, "items").filter(|i| js::truthy(i)) {
             let items = items.into_owned();
-            let mut resolved = js::spread(schema);
+            let mut resolved = self.spread(schema);
             let items = self.resolve(&items, refs);
             resolved.insert("items".into(), Value::Object(items));
             self.normalize_type_in_place(&mut resolved);
             return resolved;
         }
 
-        let mut resolved = js::spread(schema);
+        let mut resolved = self.spread(schema);
         self.normalize_type_in_place(&mut resolved);
         resolved
+    }
+
+    /// `{ ...schema }`, counting the values copied.
+    fn spread(&mut self, schema: &Value) -> Map<String, Value> {
+        self.copied = self.copied.saturating_add(value_count(schema));
+        js::spread(schema)
     }
 
     fn normalize_type_in_place(&mut self, schema: &mut Map<String, Value>) {

@@ -14,6 +14,9 @@
 pub mod documents;
 mod endpoints;
 pub mod error;
+#[cfg(fuzzing)]
+#[doc(hidden)]
+pub mod fuzzing;
 pub mod gateway;
 pub mod handler;
 #[cfg(feature = "mcp")]

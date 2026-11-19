@@ -47,7 +47,7 @@ Approved on 2026-11-18 (D10 and the wider D4 after the first Conformance Tests r
 | D5 | `/document-json` never crashes; unknown `type` answers 404 | 500 on missing `parameters`, missing `components`, unknown `type`, or a hidden operation on a multi-method path | DOC-10, DOC-14, DOC-15 |
 | D6 | `/documents`: `?type=` selects a service; embedded JSON is escaped | `?type=` never matches; JSON is embedded unescaped in a script | DOC-04 |
 | D7 | MCP path arguments are URL-encoded before substitution | Substituted raw, so `../x` can reach another upstream operation | MCP-17 |
-| D8 | An MCP schema referenced more than once resolves every time | Second and later references resolve to `{}` | MCP-12 |
+| D8 | An MCP schema referenced more than once resolves every time, until a document's schemas have copied 200,000 JSON values; past that, a repeated reference resolves to `{}` as in the reference | Second and later references resolve to `{}` | MCP-12 |
 | D9 | Query strings match the reference for common shapes only | Parsed by Express and re-serialised by undici | FWD-04 |
 | D10 | When Redis cannot be reached, a request that needs a Bucket answers 500 within 2 seconds | The request waits about 73 s while the Redis client retries, then answers 500 | REQ-24 |
 | D11 | The gateway does not send `X-Powered-By` unless the application turns it on (`GatewayBuilder::x_powered_by(true)`) | Every response carries `X-Powered-By: Express`, an Express default | FWD-15, REQ-23 |

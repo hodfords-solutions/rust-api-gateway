@@ -57,6 +57,8 @@ mod timeouts;
 mod upgrade;
 use crate::gateway::Shared;
 use crate::request::{X_POWERED_BY, malformed_path_segment};
+#[cfg(fuzzing)]
+pub(crate) use inbound::Inbound;
 pub(crate) use inbound::rewrite_target;
 pub use timeouts::ServerTimeouts;
 use timeouts::{Clock, Expiry};

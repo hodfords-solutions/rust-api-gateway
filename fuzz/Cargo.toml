@@ -1,0 +1,116 @@
+[package]
+name = "api-gateway-fuzz"
+version = "0.0.0"
+edition = "2024"
+license = "MIT"
+publish = false
+description = "cargo-fuzz (libFuzzer) targets for the api-gateway crate; see docs/security/fuzzing.md."
+
+[package.metadata]
+cargo-fuzz = true
+
+# Not a member of the repository's workspace (the root Cargo.toml excludes `fuzz`): it needs
+# nightly and `--cfg fuzzing`, and keeps its own lock file.
+[workspace]
+
+[dependencies]
+api-gateway = { path = "../crates/rust-gateway", features = ["mcp"] }
+arbitrary = { version = "1.4", features = ["derive"] }
+http = "1.5.0"
+httparse = "1.10.1"
+libfuzzer-sys = "0.4"
+serde_json = { version = "1.0.154", features = ["preserve_order"] }
+
+[profile.release]
+debug = 1
+
+[[bin]]
+name = "route_pattern"
+path = "fuzz_targets/route_pattern.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "route_round_trip"
+path = "fuzz_targets/route_round_trip.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "request_url"
+path = "fuzz_targets/request_url.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "request_query"
+path = "fuzz_targets/request_query.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "request_headers"
+path = "fuzz_targets/request_headers.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "openapi_document"
+path = "fuzz_targets/openapi_document.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "documents_json"
+path = "fuzz_targets/documents_json.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "client_address"
+path = "fuzz_targets/client_address.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "inbound_stream"
+path = "fuzz_targets/inbound_stream.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "upgrade_head"
+path = "fuzz_targets/upgrade_head.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "websocket_response"
+path = "fuzz_targets/websocket_response.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "mcp_tools"
+path = "fuzz_targets/mcp_tools.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "mcp_call"
+path = "fuzz_targets/mcp_call.rs"
+test = false
+doc = false
+bench = false

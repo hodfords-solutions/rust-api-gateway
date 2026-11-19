@@ -1,0 +1,6 @@
+target
+artifacts
+coverage
+logs
+# Corpora are generated (scripts/seed-corpora.py) and grow while fuzzing; not committed.
+corpus

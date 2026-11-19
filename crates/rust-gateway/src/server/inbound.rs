@@ -10,7 +10,10 @@
 //!
 //! To find request heads in the byte stream, the request framing is followed: a head ends at
 //! an empty line, its body is `Content-Length` bytes or chunked. After an upgrade or
-//! `CONNECT`, or anything that cannot be followed, bytes pass through untouched.
+//! `CONNECT`, or anything that cannot be followed, bytes pass through untouched. Heads are
+//! delimited as hyper delimits them (lines may end with a bare LF) and read as Node reads
+//! them: empty lines before a request line are dropped, and a head with a bare-LF line,
+//! which Node refuses, is handed on behind a control character so that hyper refuses it too.
 //!
 //! When the server proxies WebSocket upgrades itself (area 06), an upgrade request head
 //! ([`UpgradeHead`]) is not handed to hyper at all: it is held, with every byte after it,
@@ -22,9 +25,17 @@ use bytes::BytesMut;
 
 use super::upgrade::{Held, UpgradeHead};
 
-/// The longest request head that is rewritten; a longer one passes through untouched
-/// (hyper rejects heads above its own limit anyway).
+/// The longest request head that is rewritten. Node refuses heads long before this
+/// (`NODE_MAX_HEADER_SIZE`); a longer one gets Node's answer (see `Inbound::head`).
 const MAX_HEAD: usize = 64 * 1024;
+
+/// Node's `maxHeaderSize` default: a head still going past this many bytes is answered with
+/// 431, unless an error earlier in it was answered with 400 first.
+const NODE_MAX_HEADER_SIZE: usize = 16 * 1024;
+
+/// hyper's default `max_buf_size` (the server does not change it): a head that has not
+/// ended within this many bytes is answered with 431.
+const HYPER_MAX_BUF_SIZE: usize = 8192 + 4096 * 100;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum State {
@@ -38,6 +49,8 @@ enum State {
     Opaque,
     /// An upgrade head was held back: nothing more is handed to hyper.
     Held,
+    /// hyper was handed a head it answers with 431; what follows is dropped.
+    Refused,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -109,6 +122,10 @@ impl Inbound {
             }
             match self.state {
                 State::Held => return,
+                State::Refused => {
+                    self.pending.clear();
+                    return;
+                }
                 State::Opaque => {
                     out.extend_from_slice(&self.pending.split());
                     return;
@@ -137,7 +154,7 @@ impl Inbound {
 
     /// The connection ended: whatever is left goes to hyper as it is.
     pub(crate) fn finish(&mut self, out: &mut BytesMut) {
-        if self.state != State::Held {
+        if !matches!(self.state, State::Held | State::Refused) {
             out.extend_from_slice(&self.pending.split());
         }
     }
@@ -145,26 +162,65 @@ impl Inbound {
     /// Processes one request head if it is complete. Returns false when more bytes are
     /// needed.
     fn head(&mut self, out: &mut BytesMut) -> bool {
-        let Some(end) = find(&self.pending, b"\r\n\r\n") else {
-            if self.pending.len() > MAX_HEAD {
-                self.state = State::Opaque;
-                return true;
-            }
+        // Empty lines before a request line: Node skips any run of CR and LF, hyper skips
+        // CRLF and LF lines. Dropping them gives hyper what Node reads (FUZZ-05).
+        let lead = self
+            .pending
+            .iter()
+            .position(|&b| b != b'\r' && b != b'\n')
+            .unwrap_or(self.pending.len());
+        let _ = self.pending.split_to(lead);
+        if self.pending.is_empty() {
             return false;
+        }
+        // The head ends at its first empty line, as hyper finds it: lines may end with CRLF
+        // or a bare LF (FUZZ-01).
+        let end = head_end(&self.pending);
+        let oversize = end.unwrap_or(self.pending.len()) > MAX_HEAD;
+        let Some(end) = end.filter(|_| !oversize) else {
+            if !oversize {
+                return false;
+            }
+            // Too long to rewrite; the answer is Node's (below).
+            self.answer_as_node(out);
+            return true;
         };
+        // Node refuses a head with a line ended by a bare LF; hyper would read it.
+        if has_bare_lf(&self.pending[..end]) {
+            self.answer_as_node(out);
+            return true;
+        }
         if self.hold_upgrades
-            && let Some(upgrade) = UpgradeHead::parse(&self.pending[..end + 4])
+            && let Some(upgrade) = UpgradeHead::parse(&self.pending[..end])
         {
-            let _ = self.pending.split_to(end + 4);
+            let _ = self.pending.split_to(end);
             self.held = Some(upgrade);
             self.state = State::Held;
             return true;
         }
-        let head = self.pending.split_to(end + 4);
+        let head = self.pending.split_to(end);
         let (rewritten, next) = rewrite_head(&head);
         out.extend_from_slice(&rewritten);
         self.state = next;
         true
+    }
+
+    /// Hands hyper what makes it answer a head Node refuses as Node does. Node reads a head
+    /// byte by byte: an error within its first `NODE_MAX_HEADER_SIZE` bytes (a bare LF or
+    /// CR, a control or non-ASCII byte in the request target) is answered with 400, and a
+    /// head still going past that size with 431. For 400 hyper gets the head behind a control
+    /// character; for 431, a head longer than its own buffer, and the rest of the connection
+    /// is dropped.
+    fn answer_as_node(&mut self, out: &mut BytesMut) {
+        let pending = self.pending.split();
+        if node_refuses_early(&pending) {
+            refuse(&pending, out);
+            self.state = State::Opaque;
+        } else {
+            out.extend_from_slice(b"GET / HTTP/1.1\r\nX: ");
+            out.extend(std::iter::repeat_n(b'a', HYPER_MAX_BUF_SIZE));
+            self.state = State::Refused;
+        }
     }
 
     fn chunked(&mut self, chunk: Chunk, out: &mut BytesMut) {
@@ -223,6 +279,51 @@ impl Inbound {
 
 fn find(haystack: &[u8], needle: &[u8]) -> Option<usize> {
     haystack.windows(needle.len()).position(|w| w == needle)
+}
+
+/// The length of the head at the start of `bytes` (up to and including its empty line), as
+/// `httparse` delimits it: lines end with CRLF or a bare LF.
+fn head_end(bytes: &[u8]) -> Option<usize> {
+    let mut line_start = 0;
+    for (i, &b) in bytes.iter().enumerate() {
+        if b != b'\n' {
+            continue;
+        }
+        if matches!(&bytes[line_start..i], b"" | b"\r") {
+            return Some(i + 1);
+        }
+        line_start = i + 1;
+    }
+    None
+}
+
+/// Whether a line in `head` ends with a LF not preceded by CR.
+fn has_bare_lf(head: &[u8]) -> bool {
+    head.iter()
+        .enumerate()
+        .any(|(i, &b)| b == b'\n' && (i == 0 || head[i - 1] != b'\r'))
+}
+
+/// Whether Node finds an error in the first `NODE_MAX_HEADER_SIZE` bytes of `head` (which
+/// starts with its request line): a LF not preceded by CR, a CR not followed by LF, or a
+/// control or non-ASCII byte in the request target.
+fn node_refuses_early(head: &[u8]) -> bool {
+    let window = &head[..head.len().min(NODE_MAX_HEADER_SIZE)];
+    let bad_line_end = window.iter().enumerate().any(|(i, &b)| match b {
+        b'\n' => i == 0 || window[i - 1] != b'\r',
+        b'\r' => window.get(i + 1).is_some_and(|&next| next != b'\n'),
+        _ => false,
+    });
+    let line = &window[..find(window, b"\n").unwrap_or(window.len())];
+    let target = line.split(|&b| b == b' ').nth(1).unwrap_or_default();
+    bad_line_end || target.iter().any(|&b| !(0x21..=0x7e).contains(&b))
+}
+
+/// Hands hyper `head` with a control character in front, which it refuses with 400 before
+/// reading anything else, as Node refuses the head.
+fn refuse(head: &[u8], out: &mut BytesMut) {
+    out.extend_from_slice(&[0x01]);
+    out.extend_from_slice(head);
 }
 
 fn trim_line(line: &[u8]) -> &[u8] {
@@ -409,6 +510,96 @@ mod tests {
         inbound.feed(b"GET /<x> HTTP/1.1\r\nUpgrade: h2c\r\n\r\n", &mut out);
         assert!(!inbound.is_holding());
         assert_eq!(&out[..], b"GET /%3Cx%3E HTTP/1.1\r\nUpgrade: h2c\r\n\r\n");
+    }
+
+    // FUZZ-01 (docs/security/fuzzing.md): hyper ends a head at a bare `\n\n` too. Node
+    // refuses a head with a bare-LF line, so hyper is made to refuse it (400) instead of
+    // reading it and the head after it unrewritten.
+    #[test]
+    fn fuzz_01_a_head_with_bare_lf_lines_is_refused() {
+        let input = "GET /a HTTP/1.1\nHost: h\n\nGET /\u{e9} HTTP/1.1\r\nHost: h\r\n\r\n";
+        let out = run(&[input.as_bytes()]);
+        assert_eq!(out[0], 0x01, "{:?}", String::from_utf8_lossy(&out));
+        assert_eq!(&out[1..], input.as_bytes());
+        // Any bare LF in the head, as Node: the request line, a field, the empty line.
+        for head in [
+            "GET /a HTTP/1.1\r\nHost: h\r\n\n",
+            "GET /a HTTP/1.1\r\nHost: h\nX: 1\r\n\r\n",
+        ] {
+            assert_eq!(run(&[head.as_bytes()])[0], 0x01, "{head:?}");
+        }
+        // Split anywhere, the result is the same.
+        let bytes = input.as_bytes();
+        for cut in 1..bytes.len() {
+            assert_eq!(run(&[&bytes[..cut], &bytes[cut..]]), out, "cut at {cut}");
+        }
+    }
+
+    // FUZZ-05: empty lines (any run of CR and LF, as Node reads them) before a request line
+    // are dropped, and the request after them is rewritten as usual.
+    #[test]
+    fn fuzz_05_leading_empty_lines_are_skipped() {
+        assert_eq!(
+            run(&["\r\n\r\nGET /\u{e9} HTTP/1.1\r\nHost: h\r\n\r\n".as_bytes()]),
+            b"GET /\x01\x01 HTTP/1.1\r\nHost: h\r\n\r\n".to_vec()
+        );
+        assert_eq!(
+            run(&[
+                b"\n\r\r",
+                b"\nGET /<x> HTTP/1.1\r\n\r\n\r\nGET /<y> HTTP/1.1\r\n\r\n"
+            ]),
+            b"GET /%3Cx%3E HTTP/1.1\r\n\r\nGET /%3Cy%3E HTTP/1.1\r\n\r\n".to_vec()
+        );
+    }
+
+    /// Whether hyper is handed a head it answers with 431 (and nothing after it).
+    fn is_too_large(out: &[u8]) -> bool {
+        out.len() > HYPER_MAX_BUF_SIZE
+            && out.starts_with(b"GET / HTTP/1.1\r\nX: aaa")
+            && out[out.len() - 64..].iter().all(|&b| b == b'a')
+    }
+
+    // A head longer than MAX_HEAD gets Node's answer, whatever the reads: 431 once it is past
+    // Node's limit (`HPE_HEADER_OVERFLOW`), 400 for an error Node meets before that. The
+    // answers were observed with Node 24.
+    #[test]
+    fn an_oversized_head_gets_nodes_answer() {
+        let kib = |n: usize| "a".repeat(n * 1024);
+        let feeds = |input: &str| {
+            let bytes = input.as_bytes();
+            let whole = run(&[bytes]);
+            let pieces: Vec<&[u8]> = bytes.chunks(16 * 1024).collect();
+            assert_eq!(run(&pieces), whole, "depends on the reads");
+            whole
+        };
+        // 431: a 1 MiB target (the request line never ends within the limit), a 1 MiB header,
+        // a 70 KiB complete head, and a bare LF Node only meets past its limit.
+        for input in [
+            format!(
+                "GET /svc/v1/users?{} HTTP/1.1\r\nHost: h\r\n\r\n",
+                kib(1024)
+            ),
+            format!("GET /svc/v1/users HTTP/1.1\r\nX-Big: {}\r\n\r\n", kib(1024)),
+            format!(
+                "GET /x HTTP/1.1\r\nHost: h\r\nX: {}\r\n\r\nGET /y HTTP/1.1\r\n\r\n",
+                kib(70)
+            ),
+            format!("GET /x HTTP/1.1\r\nX: {}\nHost: h\r\n\r\n", kib(20)),
+            format!("GET /x?{}", kib(100)),
+        ] {
+            assert!(is_too_large(&feeds(&input)), "{:?}", &input[..40]);
+        }
+        // 400: errors Node meets first, within its limit.
+        for input in [
+            format!("GET /\u{e9}?{} HTTP/1.1\r\nHost: h\r\n\r\n", kib(100)),
+            format!("GET /x HTTP/1.1\nHost: h\r\nX: {}\r\n\r\n", kib(100)),
+            format!("GET /x HTTP/1.1\r\nHost: h\rX: {}\r\n\r\n", kib(100)),
+        ] {
+            assert_eq!(feeds(&input)[0], 0x01, "{:?}", &input[..40]);
+        }
+        // A head within MAX_HEAD is still rewritten and handed on as usual.
+        let input = format!("GET /<x> HTTP/1.1\r\nX: {}\r\n\r\n", kib(20));
+        assert_eq!(feeds(&input), input.replace("<x>", "%3Cx%3E").into_bytes());
     }
 
     #[test]
