@@ -20,7 +20,7 @@ What clients and upstream services observe is the same as with the Reference Gat
 
 - **Logging and Monitoring**: The library logs through the `tracing` crate. OpenTelemetry traces are exported over OTLP with the cargo feature `otel`.
 
-- **WebSocket Support**: WebSocket upgrades are proxied to the Upstream Service, with their own middleware chain.
+- **WebSocket Support**: WebSocket upgrades are proxied to the Upstream Service, with their own middleware chain. An upgrade on a path that is a Route also passes that Route's checks (proxy middleware and rate limits), so upgrade headers cannot be used to skip them.
 
 - **Error Handling and Fault Tolerance**: Upstream connections are pooled and bounded by timeouts. An Upstream Service that cannot be reached answers 503, a Redis that cannot be reached answers 500 within 2 seconds, and the rendering of gateway errors can be replaced.
 

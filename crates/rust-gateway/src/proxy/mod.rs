@@ -26,7 +26,7 @@ use std::sync::Arc;
 use axum::body::Body;
 use axum::extract::ConnectInfo;
 use http::header::{HeaderName, HeaderValue};
-use http::{HeaderMap, Request, Response};
+use http::{HeaderMap, Method, Request, Response};
 
 use crate::error::{ErrorContext, GatewayError};
 use crate::gateway::Shared;
@@ -36,6 +36,7 @@ use crate::request::{
     ProxyRequest, RequestClass, classify, is_supported_method, normalize_request_url,
     strip_service_prefix,
 };
+use crate::route::Route;
 
 pub(crate) use forward::{render_error, render_error_with, weak_etag};
 
@@ -157,69 +158,16 @@ async fn run(shared: &Arc<Shared>, request: Request<Body>) -> Result<Response<Bo
             )
             .map_err(GatewayError::internal)?
             .ok_or(GatewayError::MethodNotAllowed)?;
-
-        let limiter = &shared.limiter;
-        let mut state = limiter.request_state(peer.map(|p| p.ip()), request.headers());
-        limiter
-            .count_global_ip(&mut state)
-            .await
-            .map_err(|error| rate_limit_error(error, &state))?;
-
-        // REQ-17: excluded names cannot come from anywhere but a middleware.
-        for name in exclude {
-            proxy_request.remove_header(name);
-        }
-        for middleware in shared.handlers.proxy.iter() {
-            let rejection = match middleware
-                .handle(&route, &mut request, &mut proxy_request)
-                .await
-            {
-                Ok(true) => continue,
-                Ok(false) => GatewayError::Forbidden,
-                Err(error) => error.into_gateway_error(),
-            };
-            // RL-10: a rejected request counts against the Anonymous IP Bucket first.
-            limiter
-                .count_anonymous_ip(&mut state)
-                .await
-                .map_err(|error| rate_limit_error(error, &state))?;
-            return Err(rejection.into());
-        }
-
-        // RL-11 to RL-13: the resolver runs after middleware, only when limiting is on.
-        let identity = if limiter.is_enabled() {
-            match &shared.handlers.identity_resolver {
-                Some(resolver) => resolver
-                    .resolve(IdentityContext {
-                        request: &request,
-                        route: &route,
-                        ip: state.client_key(),
-                    })
-                    .await
-                    .map_err(|e| GatewayError::Internal { source: Some(e) })?,
-                None => Some(state.default_identity()),
-            }
-        } else {
-            None
-        };
-        limiter
-            .check_limits(
-                &mut state,
-                identity,
-                RouteKey::new(&prefix, method.as_str(), &route.router_path),
-                &route.rate_limits,
-            )
-            .await
-            .map_err(|error| rate_limit_error(error, &state))?;
-        if has_status_limits(&route.rate_limits) {
-            after_response = Some(forward::AfterResponse {
-                limiter: limiter.clone(),
-                state,
-                service: prefix.clone(),
-                method: method.as_str().to_string(),
-                route: Arc::clone(&route),
-            });
-        }
+        after_response = routed_checks(
+            shared,
+            &prefix,
+            &method,
+            &route,
+            peer,
+            &mut request,
+            &mut proxy_request,
+        )
+        .await?;
     }
 
     let pool = shared
@@ -247,6 +195,84 @@ async fn run(shared: &Arc<Shared>, request: Request<Body>) -> Result<Response<Bo
         after_response,
     )
     .await?)
+}
+
+/// The checks a Routed Request passes once its Route is found, in the reference's order
+/// (REQ-16): the Global IP Bucket (RL-09), the proxy middleware (REQ-17 to REQ-19, with the
+/// Anonymous IP Bucket of RL-10 on rejection), the Identity (RL-11 to RL-13) and the remaining
+/// Buckets (RL-18). Returns the status-scoped Route counting to do once the response status
+/// is known (RL-16).
+///
+/// Deviation D15: an upgrade request whose URL is a Route passes them too
+/// ([`websocket`]), so that adding upgrade headers to a request skips none of them.
+async fn routed_checks(
+    shared: &Arc<Shared>,
+    prefix: &str,
+    method: &Method,
+    route: &Arc<Route>,
+    peer: Option<SocketAddr>,
+    request: &mut GatewayRequest,
+    proxy_request: &mut ProxyRequest,
+) -> Result<Option<forward::AfterResponse>, Failure> {
+    let limiter = &shared.limiter;
+    let mut state = limiter.request_state(peer.map(|p| p.ip()), request.headers());
+    limiter
+        .count_global_ip(&mut state)
+        .await
+        .map_err(|error| rate_limit_error(error, &state))?;
+
+    // REQ-17: excluded names cannot come from anywhere but a middleware.
+    for name in &shared.options.exclude_headers {
+        proxy_request.remove_header(name);
+    }
+    for middleware in shared.handlers.proxy.iter() {
+        let rejection = match middleware.handle(route, request, proxy_request).await {
+            Ok(true) => continue,
+            Ok(false) => GatewayError::Forbidden,
+            Err(error) => error.into_gateway_error(),
+        };
+        // RL-10: a rejected request counts against the Anonymous IP Bucket first.
+        limiter
+            .count_anonymous_ip(&mut state)
+            .await
+            .map_err(|error| rate_limit_error(error, &state))?;
+        return Err(rejection.into());
+    }
+
+    // RL-11 to RL-13: the resolver runs after middleware, only when limiting is on.
+    let identity = if limiter.is_enabled() {
+        match &shared.handlers.identity_resolver {
+            Some(resolver) => resolver
+                .resolve(IdentityContext {
+                    request,
+                    route,
+                    ip: state.client_key(),
+                })
+                .await
+                .map_err(|e| GatewayError::Internal { source: Some(e) })?,
+            None => Some(state.default_identity()),
+        }
+    } else {
+        None
+    };
+    limiter
+        .check_limits(
+            &mut state,
+            identity,
+            RouteKey::new(prefix, method.as_str(), &route.router_path),
+            &route.rate_limits,
+        )
+        .await
+        .map_err(|error| rate_limit_error(error, &state))?;
+    Ok(
+        has_status_limits(&route.rate_limits).then(|| forward::AfterResponse {
+            limiter: limiter.clone(),
+            state,
+            service: prefix.to_string(),
+            method: method.as_str().to_string(),
+            route: Arc::clone(route),
+        }),
+    )
 }
 
 /// A rejection or failure of a rate-limit operation: 429 with the Bucket's body, telling the

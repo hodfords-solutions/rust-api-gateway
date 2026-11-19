@@ -184,13 +184,11 @@ async fn sec_08_authenticated_and_anonymous_identities_do_not_share_buckets() {
     );
 }
 
-/// SEC-01: upgrade requests are not counted against any Bucket (WS-04), so a client whose
-/// Global IP Bucket is full keeps reaching the upstream by adding upgrade headers to its
-/// requests.
-///
-/// Safe behaviour: the upgrade is refused with 429 like the plain request.
+/// SEC-01, fixed (Deviation D15): upgrade requests used to be counted against no Bucket
+/// (WS-04), so a client whose Global IP Bucket was full kept reaching the upstream by adding
+/// upgrade headers. An upgrade whose URL is a Route now passes that Route's Buckets and is
+/// refused with 429 like the plain request.
 #[tokio::test]
-#[ignore = "security finding SEC-01: upgrade requests are not rate limited"]
 async fn sec_01_upgrade_requests_are_rate_limited() {
     require_redis!();
     let (upstream, prefix, served) = limited(TrustProxy::All, 1, |b| b).await;
