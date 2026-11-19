@@ -39,6 +39,8 @@ REQ-19
 REQ-23
 REQ-24
 REQ-26
+REQ-28
+REQ-29
 FWD-01
 FWD-02
 FWD-03
@@ -92,7 +94,9 @@ WS-11
 WS-12
 WS-13
 WS-14
-WS-15
+# WS-15 is not listed: under Deviation D15 the body of a refused upgrade is not passed on,
+# so `websocket::ws_15_upstream_refuses` runs against the reference only; the Rust behaviour
+# is tested Rust-only (`security_websocket.rs`).
 WS-16
 DOC-01
 DOC-02

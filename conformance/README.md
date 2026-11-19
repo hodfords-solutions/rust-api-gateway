@@ -18,7 +18,7 @@ How to run everything is in [docs/development.md](../docs/development.md). This 
 
 ## Configuration file
 
-The runner writes one JSON file per gateway start and passes its path in `GATEWAY_CONFIG`. Field names and meanings are the Reference Gateway's `ApiGatewayOption`, plus three harness fields. Source of truth: [`harness/src/config.rs`](harness/src/config.rs) and [`reference/src/config.ts`](reference/src/config.ts).
+The runner writes one JSON file per gateway start and passes its path in `GATEWAY_CONFIG`. Field names and meanings are the Reference Gateway's `ApiGatewayOption`, plus four harness fields. Source of truth: [`harness/src/config.rs`](harness/src/config.rs) and [`reference/src/config.ts`](reference/src/config.ts).
 
 ```json
 {
@@ -43,7 +43,8 @@ The runner writes one JSON file per gateway start and passes its path in `GATEWA
   "redis": { "host": "127.0.0.1", "port": 6399, "db": 7, "username": null, "password": null, "tls": false },
   "pool": { "connections": 100, "pipelining": 1 },
   "bypassRoutePrefixes": ["svc/public"],
-  "mcp": { "enabled": true, "allowedServices": ["svc"], "allowedOperations": [], "serverInfo": { "name": "x", "version": "1" } }
+  "mcp": { "enabled": true, "allowedServices": ["svc"], "allowedOperations": [], "serverInfo": { "name": "x", "version": "1" } },
+  "server": { "headersTimeout": 1000, "requestTimeout": 2000, "keepAliveTimeout": 1000, "connectionsCheckingInterval": 100 }
 }
 ```
 
@@ -54,6 +55,7 @@ The runner writes one JSON file per gateway start and passes its path in `GATEWA
 | `throttler.keyResolver` | `"protocol"` installs the protocol Identity resolver below. Absent means no resolver (Identity is the client address). |
 | `redis.tls` | `true`, `false`, or `{ caFile, certFile, keyFile, servername, rejectUnauthorized }`. |
 | `pool` | Passed to undici's `Pool` unchanged (CFG-10). The Rust target maps what it can. |
+| `server` | The host application's `http.Server` timeouts in milliseconds: `headersTimeout`, `requestTimeout`, `keepAliveTimeout`, `keepAliveTimeoutBuffer`, `connectionsCheckingInterval` (REQ-28, REQ-29). Absent fields keep Node's defaults. The Rust target maps the first four to `GatewayOptions::server_timeouts` and checks them exactly, so it ignores `connectionsCheckingInterval`. |
 | everything else | As in `ApiGatewayOption`. |
 
 The MCP callbacks (`filter`, `parameterFilter`, `toolName`) are functions, so the file describes them declaratively; see [MCP callbacks](#mcp-callbacks).

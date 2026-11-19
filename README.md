@@ -20,7 +20,7 @@ What clients and upstream services observe is the same as with the Reference Gat
 
 - **Logging and Monitoring**: The library logs through the `tracing` crate. OpenTelemetry traces are exported over OTLP with the cargo feature `otel`.
 
-- **WebSocket Support**: WebSocket upgrades are proxied to the Upstream Service, with their own middleware chain.
+- **WebSocket Support**: WebSocket upgrades are proxied to the Upstream Service, with their own middleware chain. An upgrade on a path that is a Route also passes that Route's checks (proxy middleware and rate limits), so upgrade headers cannot be used to skip them.
 
 - **Error Handling and Fault Tolerance**: Upstream connections are pooled and bounded by timeouts. An Upstream Service that cannot be reached answers 503, a Redis that cannot be reached answers 500 within 2 seconds, and the rendering of gateway errors can be replaced.
 
@@ -480,6 +480,7 @@ let gateway = Gateway::builder(options)
 | Express `trust proxy` | `rate_limit::TrustProxy` in `RateLimitOptions::trust_proxy` |
 | A NestJS exception filter | `error::ErrorRenderer`, set with `GatewayBuilder::error_renderer`; `render_with_context` also gets `error::ErrorContext`, with the time until a full Bucket resets for `Retry-After` |
 | Express middleware in the host app (`app.enableCors()`, `app.use(...)`) | A tower layer, set with `GatewayBuilder::layer` (WebSocket upgrades do not pass through it) |
+| Node `http.Server` timeouts in the host app (`headersTimeout`, `requestTimeout`, `keepAliveTimeout`, `keepAliveTimeoutBuffer`) | `server::ServerTimeouts` in `GatewayOptions::server_timeouts`, with Node's defaults |
 | `normalizeIp`, `DEFAULT_IPV6_SUBNET` | `rate_limit::normalize_ip`, `rate_limit::DEFAULT_IPV6_SUBNET` |
 | `ttlToHumanReadable` | `rate_limit::ttl_to_human_readable` |
 | `McpOption` | `mcp::McpOptions` |

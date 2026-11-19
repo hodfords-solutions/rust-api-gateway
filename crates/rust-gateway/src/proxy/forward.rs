@@ -42,7 +42,7 @@ pub(crate) struct AfterResponse {
 }
 
 impl AfterResponse {
-    fn count(self, status: u16) {
+    pub(crate) fn count(self, status: u16) {
         let Ok(runtime) = tokio::runtime::Handle::try_current() else {
             return;
         };
