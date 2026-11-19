@@ -385,14 +385,16 @@ async fn d11_x_powered_by_is_off_by_default_and_can_be_turned_on() {
 /// FUZZ-01 and FUZZ-05 (docs/security/fuzzing.md): request heads are framed as Node frames
 /// them. A head with a bare-LF line is refused with 400 (hyper alone would read it, and the
 /// head after it, without the target rewrite); empty lines before a request line, even a lone
-/// CR, are skipped and the request after them is served or refused as usual.
+/// CR, are skipped and the request after them is served or refused as usual. A head too long
+/// to rewrite gets Node's answer: 431, or 400 for an error Node meets within its limit.
 #[tokio::test]
 async fn fuzz_01_fuzz_05_request_heads_are_framed_like_node() {
     use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _};
 
     async fn exchange(addr: std::net::SocketAddr, bytes: &[u8]) -> String {
         let mut stream = tokio::net::TcpStream::connect(addr).await.expect("connect");
-        stream.write_all(bytes).await.expect("send");
+        // The gateway may answer and close before a long request is written.
+        let _ = stream.write_all(bytes).await;
         let mut answer = Vec::new();
         let _ = tokio::time::timeout(Duration::from_secs(5), stream.read_to_end(&mut answer)).await;
         String::from_utf8_lossy(&answer).into_owned()
@@ -427,4 +429,26 @@ async fn fuzz_01_fuzz_05_request_heads_are_framed_like_node() {
     )
     .await;
     assert!(answer.starts_with("HTTP/1.1 400 "), "{answer}");
+
+    let big = "a".repeat(1024 * 1024);
+    for (request, status) in [
+        (
+            format!("GET /svc/v1/users?{big} HTTP/1.1\r\nHost: h\r\n\r\n"),
+            "431",
+        ),
+        (
+            format!("GET /svc/v1/users HTTP/1.1\r\nHost: h\r\nX-Big: {big}\r\n\r\n"),
+            "431",
+        ),
+        (
+            format!("GET /svc/v1/users HTTP/1.1\nHost: h\r\nX-Big: {big}\r\n\r\n"),
+            "400",
+        ),
+    ] {
+        let answer = exchange(served.addr, request.as_bytes()).await;
+        assert!(
+            answer.starts_with(&format!("HTTP/1.1 {status} ")),
+            "{status}: {answer}"
+        );
+    }
 }
