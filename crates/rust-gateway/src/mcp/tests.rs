@@ -159,8 +159,10 @@ fn fuzz_04_shared_references_do_not_expand_exponentially() {
     let started = std::time::Instant::now();
     let large = serde_json::to_string(&body(64)).unwrap();
     assert!(large.len() < 32 * 1024 * 1024, "{} bytes", large.len());
+    // Without the budget this never finishes (2^64 expansions); the limit is generous so
+    // that a loaded debug build does not trip it (about 1 s alone).
     assert!(
-        started.elapsed() < std::time::Duration::from_secs(5),
+        started.elapsed() < std::time::Duration::from_secs(60),
         "took {:?}",
         started.elapsed()
     );

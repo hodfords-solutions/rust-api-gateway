@@ -218,8 +218,10 @@ fn fuzz_03_many_wildcards_match_fast() {
             ParamValue::Segments(vec!["a".into(), "b".into()])
         )
     );
+    // Exponential matching would never finish (2^63 paths); the limit only has to be
+    // generous enough for a loaded debug build.
     assert!(
-        started.elapsed() < std::time::Duration::from_secs(1),
+        started.elapsed() < std::time::Duration::from_secs(30),
         "took {:?}",
         started.elapsed()
     );
