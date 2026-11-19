@@ -52,4 +52,4 @@ Tests: Conformance Tests in `conformance/harness/tests/conformance/rate_limit.rs
 
 | ID | Behaviour | Reference | Test | Status |
 |---|---|---|---|---|
-| RL-24 | Static Requests, Bypass Requests, WebSocket upgrades and requests with no matching Route are never rate limited. | `restful/services/proxy.service.ts:224-227,259-273` | C (`rate_limit::rl_24_scope`) | | done |
+| RL-24 | Static Requests, Bypass Requests, WebSocket upgrades and requests with no matching Route are never rate limited. **Deviation D15:** an upgrade whose URL is a Route (and that is neither Static nor Bypass) counts against that Route's Buckets as the same request without upgrade headers (WS-04). | `restful/services/proxy.service.ts:224-227,259-273` | C (`rate_limit::rl_24_scope`, for an upgrade that is no Route), R (`security_rate_limit::sec_01_upgrade_requests_are_rate_limited`); reference behaviour: C reference-only (`deviations::d15_upgrades_skip_route_checks_and_relay_bodies`) | | deviation |

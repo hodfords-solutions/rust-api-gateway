@@ -14,9 +14,10 @@ Redis and follows the usual convention: `SKIP` without it, a failure under
 The gateway's behaviour is pinned to the Reference Gateway by the Parity Checklist, so a
 weakness the reference shares is **not fixed here**. Its test asserts the safe behaviour and
 is marked `#[ignore = "security finding SEC-NN: …"]`; each fix must be approved individually
-as a Deviation (`docs/parity/README.md`), and the fix un-ignores the test. A weakness only
-this gateway has is a parity gap and is fixed like one, with Parity Checklist rows and a
-Conformance Test (SEC-02 and SEC-03, see [Fixed](#fixed)). Run the open findings with:
+as a Deviation (`docs/parity/README.md`), and the fix un-ignores the test (SEC-01, Deviation
+D15). A weakness only this gateway has is a parity gap and is fixed like one, with Parity
+Checklist rows and a Conformance Test (SEC-02 and SEC-03). See [Fixed](#fixed). Run the open
+findings with:
 
 ```bash
 cargo test -p api-gateway --no-fail-fast --test 'security_*' -- --ignored
@@ -30,36 +31,11 @@ defaults; the reference was not run for these tests.
 
 | ID | Severity | Area | Summary | Reference |
 |---|---|---|---|---|
-| SEC-01 | High | WebSocket | Upgrade requests bypass Route matching, proxy middleware and rate limiting | Same |
 | SEC-04 | Medium | Paths | Encoded traversal under a Bypass prefix or Static Request is forwarded raw | Same |
 | SEC-05 | Medium | Headers | The underscore spelling of an excluded identity header is forwarded | Likely same |
 | SEC-06 | Low | Headers | Spoofed `X-Real-IP`, `X-Forwarded-Host`, `X-Forwarded-Proto`, `Forwarded` reach the upstream | Same |
 | SEC-07 | Low | Headers | Headers nominated by `Connection` are forwarded | Same |
 | SEC-08 | Low | Rate limiting | Authenticated and anonymous Identities with the same key share Buckets | Likely same |
-
-### SEC-01: upgrade requests bypass Route matching, proxy middleware and rate limiting
-
-- **Tests:** `security_websocket::sec_01_upgrade_requests_cannot_bypass_the_proxy_middleware`,
-  `security_websocket::sec_01_upgrades_on_unrouted_paths_are_refused`,
-  `security_rate_limit::sec_01_upgrade_requests_are_rate_limited`.
-- **Reproduction:** with a proxy middleware that rejects every request (the application's
-  authentication), `GET /v1/users` to the Default Service answers 403. The same request with
-  `Connection: Upgrade` and `Upgrade: websocket` added is forwarded to the upstream; an upstream
-  that ignores the upgrade answers 200, and the gateway relays `HTTP/1.1 200 OK` and the body.
-  An upgrade on `/svc/internal/admin` (no Route) is tunnelled (`101`); with the Global IP Bucket
-  full, upgrade requests still reach the upstream.
-- **Observed:** every upgrade request takes the WebSocket path (WS-01), which has no Route
-  lookup, no proxy middleware and no rate limiting (WS-04); only WebSocket middleware run. A
-  non-101 upstream answer is relayed (WS-15).
-- **Safe:** upgrades are subject to the same authentication and rate limiting as plain
-  requests (or refused when they are not WebSocket Routes), and nothing is forwarded otherwise.
-- **Severity: high.** An application that enforces authentication in a proxy middleware and
-  registers no equivalent WebSocket middleware exposes every `GET` endpoint reachable at the
-  forwarded path, without authentication or rate limits, to any client that adds two headers.
-  The forwarded path keeps the Service Prefix (WS-07), so endpoints reached through the Default
-  Service or a Direct Prefix are exposed directly; whether the upstream answers a non-WebSocket
-  upgrade normally depends on its framework (most do).
-- **Reference:** same (WS-01, WS-04, WS-07, WS-15 pin this behaviour).
 
 ### SEC-04: encoded traversal under a Bypass prefix or Static Request is forwarded raw
 
@@ -190,7 +166,7 @@ defaults; the reference was not run for these tests.
 
 **WebSocket** (`security_websocket.rs`)
 
-- `plain_requests_are_rejected_by_the_middleware` (the precondition of SEC-01).
+- The SEC-01 tests below.
 - `refused_upgrades_open_no_tunnel`: a non-101 answer closes the connection; a request
   pipelined behind the upgrade (WebSocket smuggling) never reaches the upstream.
 - `non_websocket_upgrades_are_dropped`: `h2c` (h2c smuggling) and `POST` upgrades.
@@ -215,8 +191,39 @@ Every error response checked carries no `Server` or `X-Powered-By` header.
 
 ### Fixed
 
-Weaknesses only this gateway had: the Reference Gateway, on Node, was already safe. They were
-fixed as parity gaps (REQ-28, REQ-29; configurable through `GatewayOptions::server_timeouts`,
+**SEC-01 (was high): upgrade requests bypassed Route matching, proxy middleware and rate
+limiting.** Fixed as Deviation D15 (approved 2026-11-19; WS-04, WS-15, RL-24). Every upgrade
+request took the WebSocket path, which had no Route lookup, no proxy middleware and no
+rate limiting, and an upstream that did not upgrade had its answer relayed: with a proxy
+middleware rejecting `GET /v1/users` with 403, the same request plus `Connection: Upgrade`
+and `Upgrade: websocket` got the upstream's `200` and body, and kept reaching the upstream
+with the client's Global IP Bucket full. The reference behaves the same
+(`deviations::d15_upgrades_skip_route_checks_and_relay_bodies` records it). Now:
+
+- an upgrade whose URL is a Route of the selected service, and that is neither a Static nor
+  a Bypass Request, passes that Route's checks before the WebSocket middleware, as the same
+  request without upgrade headers would: Global IP Bucket, proxy middleware (Anonymous IP
+  Bucket on rejection), Identity, Custom and Route Buckets. A rejection is answered like any
+  rejected upgrade (D1); an admitted upgrade carries the proxy middleware's headers;
+- when the upstream does not upgrade, the client gets the status line only, not the body.
+
+Upgrades on paths that are no Route (WebSocket endpoints, which are rarely in OpenAPI
+documents) keep working with the WebSocket middleware only. They still reach the upstream,
+which a plain request to such a path (405) does not, but the client learns only the status
+of an upstream that does not upgrade. That residual is left to the application's WebSocket
+middleware, the check the gateway provides for upgrades; an opt-in to refuse upgrades
+outside declared WebSocket paths would close it entirely if wanted.
+
+Tests: `security_websocket::sec_01_upgrade_requests_cannot_bypass_the_proxy_middleware`,
+`security_websocket::sec_01_a_refused_upgrade_passes_on_no_upstream_content`,
+`security_rate_limit::sec_01_upgrade_requests_are_rate_limited`, and that WebSocket traffic
+is unchanged otherwise: `websocket_endpoints_without_a_route_still_upgrade`,
+`an_admitted_upgrade_on_a_route_carries_the_middleware_headers`,
+`a_bypass_upgrade_skips_the_route_checks_like_the_plain_request`,
+`plain_requests_are_rejected_by_the_middleware`.
+
+The two below were weaknesses only this gateway had: the Reference Gateway, on Node, was
+already safe. They were fixed as parity gaps (REQ-28, REQ-29; configurable through `GatewayOptions::server_timeouts`,
 CFG-20, with Node's defaults) and are covered by Conformance Tests
 (`connections::req_28_request_timeouts`, `connections::req_29_keep_alive_timeout`).
 
