@@ -50,6 +50,27 @@ fn rejects_a_missing_or_non_websocket_upgrade_header() {
     assert!(!is_websocket_upgrade(&Method::GET, Some(b"websocket, h2c")));
 }
 
+// WS-17 (Deviation D15): upgrades are accepted only under a `websocket_route_prefixes` entry.
+
+#[test]
+fn websocket_routes_match_whole_segments_of_the_normalised_url() {
+    let prefixes = ["svc/socket.io", "/chat/ws"];
+    assert!(is_websocket_route("/svc/socket.io", &prefixes));
+    assert!(is_websocket_route("/svc/socket.io/?EIO=4", &prefixes));
+    assert!(is_websocket_route("/svc/socket.io?EIO=4", &prefixes));
+    assert!(is_websocket_route("/chat/ws/room", &prefixes));
+    assert!(!is_websocket_route("/svc/socket.io-admin/x", &prefixes));
+    assert!(!is_websocket_route("/svc/v1/admin/users", &prefixes));
+    assert!(!is_websocket_route("/svc", &prefixes));
+    // The URL is normalised first, so `/svc/socket.io/../v1/admin` arrives as this.
+    assert!(!is_websocket_route("/svc/v1/admin", &prefixes));
+}
+
+#[test]
+fn no_websocket_route_prefixes_means_no_websocket_route() {
+    assert!(!is_websocket_route::<&str>("/svc/socket.io", &[]));
+}
+
 // "destroys the socket when handling an invalid upgrade request": `prepare` answers
 // `Refusal::Drop`, which closes the connection without writing; covered end to end by
 // `tests/gateway_websocket.rs` and the Conformance Test `websocket::ws_06_not_a_websocket`.
@@ -115,17 +136,12 @@ fn the_101_head_joins_repeated_upstream_headers_like_node() {
 }
 
 #[test]
-fn a_refused_upgrade_gets_the_upstream_status_line_only() {
-    let raw = b"HTTP/1.1 401 Nope Nope\r\nX-Hidden: 1\r\n\r\n";
-    let response = parse_response_head(raw).expect("valid head");
-    assert_eq!(response.reason, b"Nope Nope");
-    assert_eq!(
-        refusal_line(Version::HTTP_11, response.status, &response.reason),
-        "HTTP/1.1 401 Nope Nope"
-    );
-    assert_eq!(refusal_line(Version::HTTP_10, 503, b""), "HTTP/1.0 503 ");
+fn upstream_response_heads_are_parsed_as_node_accepts_them() {
+    let response =
+        parse_response_head(b"HTTP/1.1 401 Nope Nope\r\nX-Hidden: 1\r\n\r\n").expect("valid head");
+    assert_eq!(response.status, 401);
     let response = parse_response_head(b"HTTP/1.1 418\r\n\r\n").expect("valid head");
-    assert_eq!(response.reason, b"");
+    assert_eq!(response.status, 418);
     assert!(
         parse_response_head(
             b"HTTP/1.1 200 OK\r\ncontent-length: 1\r\ntransfer-encoding: chunked\r\n\r\n"
@@ -362,45 +378,6 @@ fn host_header_is_added_when_the_client_sent_none() {
         text(&head),
         "GET / HTTP/1.1\r\nconnection: Upgrade\r\nHost: [::1]\r\n\r\n"
     );
-}
-
-// WS-15: the body of a refused upgrade.
-
-async fn body_of(raw: &'static [u8], head: &'static [u8]) -> Vec<u8> {
-    let response = parse_response_head(head).expect("head");
-    let mut body = UpstreamBody::new(&response, BytesMut::new());
-    let mut upstream = raw;
-    let mut out = Vec::new();
-    while let Some(data) = body.next(&mut upstream).await.expect("body") {
-        assert!(!data.is_empty(), "no empty pieces");
-        out.extend_from_slice(&data);
-    }
-    out
-}
-
-#[tokio::test]
-async fn refused_bodies_are_decoded_from_their_framing() {
-    assert_eq!(
-        body_of(
-            b"hello, extra",
-            b"HTTP/1.1 401 X\r\ncontent-length: 5\r\n\r\n"
-        )
-        .await,
-        b"hello"
-    );
-    assert_eq!(
-        body_of(
-            b"3\r\nabc\r\n2;ext=1\r\nde\r\n0\r\nx-trailer: 1\r\n\r\n",
-            b"HTTP/1.1 401 X\r\ntransfer-encoding: chunked\r\n\r\n"
-        )
-        .await,
-        b"abcde"
-    );
-    assert_eq!(
-        body_of(b"until close", b"HTTP/1.1 401 X\r\n\r\n").await,
-        b"until close"
-    );
-    assert_eq!(body_of(b"ignored", b"HTTP/1.1 304 X\r\n\r\n").await, b"");
 }
 
 // ws-request.service.spec.ts: `WsRequestService.handle` (WS-04).

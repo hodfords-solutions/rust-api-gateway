@@ -1,5 +1,10 @@
 //! Area 06: WebSocket proxying (WS-01 to WS-16).
 //!
+//! The path gate, the IP rate limits and the 502 for an upstream that does not switch
+//! protocols (WS-15, WS-17, WS-18) differ from the pinned reference by design (Deviation D15);
+//! their reference side is in `deviations::d15_*`, the Rust side is Rust-only. Scenarios here
+//! set `websocketRoutePrefixes` to every path they upgrade on.
+//!
 //! Rejected upgrades (WS-05) differ by design (Deviation D1): the reference leaves the
 //! connection open with no answer. Scenarios here therefore never compare what the client
 //! sees for a rejected upgrade; they compare what reaches the upstream. The reference side
@@ -150,34 +155,12 @@ async fn requests_after_quiet(mock: &MockUpstream) -> Vec<RecordedRequest> {
     mock.requests()
 }
 
-/// Decodes a chunked body; returns it and whether the terminating chunk arrived.
-fn decode_chunked(mut bytes: &[u8]) -> Result<(Vec<u8>, bool)> {
-    let mut body = Vec::new();
-    loop {
-        let Some(end) = bytes.windows(2).position(|w| w == b"\r\n") else {
-            return Ok((body, false));
-        };
-        let size = usize::from_str_radix(std::str::from_utf8(&bytes[..end])?.trim(), 16)?;
-        bytes = &bytes[end + 2..];
-        if size == 0 {
-            ensure!(bytes == b"\r\n", "bytes after the last chunk: {bytes:?}");
-            return Ok((body, true));
-        }
-        ensure!(bytes.len() >= size + 2, "truncated chunk");
-        body.extend_from_slice(&bytes[..size]);
-        ensure!(
-            &bytes[size..size + 2] == b"\r\n",
-            "chunk not followed by CRLF"
-        );
-        bytes = &bytes[size + 2..];
-    }
-}
-
 /// WS-01: every upgrade request is handled by the WebSocket path, whatever its path:
 /// paths with a Route, without one, Bypass and Static Requests, the application's own
 /// route, the gateway's endpoints, and a path Express would reject. A request is an upgrade
 /// when it has an `Upgrade` header and `Connection` lists `upgrade`; with `Upgrade` alone it
-/// is an ordinary request.
+/// is an ordinary request. Under Deviation D15 only paths under `websocketRoutePrefixes`
+/// are upgraded, so every path here is listed.
 #[tokio::test]
 async fn ws_01_every_upgrade_takes_the_websocket_path() {
     run(
@@ -194,6 +177,11 @@ async fn ws_01_every_upgrade_takes_the_websocket_path() {
                 .service("svc", &users)
                 .service("default", &fallback);
             config.bypass_route_prefixes = Some(vec!["svc/public".into()]);
+            config.websocket_route_prefixes = Some(
+                ["svc", "__conformance", "documents", "document-json", "mcp"]
+                    .map(String::from)
+                    .to_vec(),
+            );
             let gw = target.start(config).await?;
 
             let cases = [
@@ -1052,81 +1040,6 @@ async fn ws_14_close_propagation() {
         let rest = conn.read_to_close(WAIT).await?;
         obs.record("upstream closes: client connection closed", true);
         obs.record("bytes before the close", rest.len());
-        Ok(obs)
-    })
-    .await;
-}
-
-/// WS-15: an upstream that answers an upgrade without upgrading: the client gets a status
-/// line with the upstream's status and reason, the body, then the connection is closed. No
-/// upstream header is passed on; an HTTP/1.1 client gets the body chunked when the upstream
-/// sent no `content-length`.
-#[tokio::test]
-async fn ws_15_upstream_refuses() {
-    run("ws_15_upstream_refuses", &["WS-15"], |target| async move {
-        let (mock, gw) = users_gateway(&target, |c| c).await?;
-        let body = br#"{"message":"no upgrade for you"}"#.to_vec();
-        for (path, content_length) in [("/svc/sized", true), ("/svc/unsized", false)] {
-            mock.route(
-                path,
-                Behaviour::RejectUpgrade {
-                    status: 401,
-                    reason: "Nope Nope".into(),
-                    body: body.clone(),
-                    content_length,
-                },
-            );
-        }
-        let mut observed = Vec::new();
-        for (label, path, version) in [
-            ("HTTP/1.1, content-length", "/svc/sized", "HTTP/1.1"),
-            ("HTTP/1.1, no content-length", "/svc/unsized", "HTTP/1.1"),
-            ("HTTP/1.0, content-length", "/svc/sized", "HTTP/1.0"),
-            ("HTTP/1.0, no content-length", "/svc/unsized", "HTTP/1.0"),
-        ] {
-            let mut request = client::upgrade_request(path);
-            request.version = version;
-            let mut conn = RawConn::connect(gw.addr()).await?;
-            conn.send(&request).await?;
-            let bytes = conn.read_to_close(WAIT).await?;
-            let split = bytes
-                .windows(4)
-                .position(|w| w == b"\r\n\r\n")
-                .context("no head")?;
-            let head = String::from_utf8_lossy(&bytes[..split + 4]).to_string();
-            let rest = &bytes[split + 4..];
-            let received = if head.contains("transfer-encoding: chunked") {
-                let (decoded, terminated) = decode_chunked(rest)?;
-                ensure!(terminated, "{label}: no last chunk");
-                decoded
-            } else {
-                rest.to_vec()
-            };
-            ensure!(
-                received == body,
-                "{label}: body {:?}",
-                String::from_utf8_lossy(&received)
-            );
-            observed.push((label.to_string(), head));
-        }
-        assert_table(
-            "WS-15",
-            &observed,
-            &[
-                ("HTTP/1.1, content-length", "HTTP/1.1 401 Nope Nope\r\n\r\n"),
-                (
-                    "HTTP/1.1, no content-length",
-                    "HTTP/1.1 401 Nope Nope\r\ntransfer-encoding: chunked\r\n\r\n",
-                ),
-                ("HTTP/1.0, content-length", "HTTP/1.0 401 Nope Nope\r\n\r\n"),
-                (
-                    "HTTP/1.0, no content-length",
-                    "HTTP/1.0 401 Nope Nope\r\n\r\n",
-                ),
-            ],
-        );
-        let mut obs = Observations::new();
-        obs.record("heads", &observed);
         Ok(obs)
     })
     .await;

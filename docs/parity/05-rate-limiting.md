@@ -52,4 +52,4 @@ Tests: Conformance Tests in `conformance/harness/tests/conformance/rate_limit.rs
 
 | ID | Behaviour | Reference | Test | Status |
 |---|---|---|---|---|
-| RL-24 | Static Requests, Bypass Requests, WebSocket upgrades and requests with no matching Route are never rate limited. | `restful/services/proxy.service.ts:224-227,259-273` | C (`rate_limit::rl_24_scope`) | | done |
+| RL-24 | Static Requests, Bypass Requests and requests with no matching Route are never rate limited. WebSocket upgrades are under Deviation D15 (WS-18); the pinned reference never limits them. | `restful/services/proxy.service.ts:224-227,259-273` | C (`rate_limit::rl_24_scope`); upgrades: R (`gateway_websocket_gate::d15_upgrades_count_against_the_global_ip_bucket`), reference behaviour C reference-only (`deviations::d15_reference_upgrades_every_path_without_limits`) | | done |

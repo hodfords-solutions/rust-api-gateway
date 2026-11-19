@@ -249,6 +249,8 @@ pub fn options(services: Vec<UpstreamService>) -> GatewayOptions {
         RedisOptions::new("127.0.0.1", 1),
     );
     options.exclude_headers = vec!["auth-user-id".into()];
+    // Upgrades are refused unless their path is listed (Deviation D15).
+    options.websocket_route_prefixes = vec!["svc".into()];
     options
 }
 

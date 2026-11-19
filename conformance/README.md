@@ -43,6 +43,7 @@ The runner writes one JSON file per gateway start and passes its path in `GATEWA
   "redis": { "host": "127.0.0.1", "port": 6399, "db": 7, "username": null, "password": null, "tls": false },
   "pool": { "connections": 100, "pipelining": 1 },
   "bypassRoutePrefixes": ["svc/public"],
+  "websocketRoutePrefixes": ["svc"],
   "mcp": { "enabled": true, "allowedServices": ["svc"], "allowedOperations": [], "serverInfo": { "name": "x", "version": "1" } }
 }
 ```
@@ -54,6 +55,7 @@ The runner writes one JSON file per gateway start and passes its path in `GATEWA
 | `throttler.keyResolver` | `"protocol"` installs the protocol Identity resolver below. Absent means no resolver (Identity is the client address). |
 | `redis.tls` | `true`, `false`, or `{ caFile, certFile, keyFile, servername, rejectUnauthorized }`. |
 | `pool` | Passed to undici's `Pool` unchanged (CFG-10). The Rust target maps what it can. |
+| `websocketRoutePrefixes` | Paths on which upgrades are accepted (CFG-20, Deviation D15). The pinned reference (12.4.2) ignores it. The runner sets every prefix the WebSocket scenarios use. |
 | everything else | As in `ApiGatewayOption`. |
 
 The MCP callbacks (`filter`, `parameterFilter`, `toolName`) are functions, so the file describes them declaratively; see [MCP callbacks](#mcp-callbacks).

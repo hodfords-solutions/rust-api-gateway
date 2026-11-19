@@ -195,6 +195,26 @@ impl WsProxyMiddleware for WsAuthenticationMiddleware {
 ```
 Register it with `GatewayBuilder::websocket_middleware`.
 
+#### WebSocket routes
+A WebSocket upgrade does not go through the Route lookup or `ProxyMiddleware`, so since 0.2.0 the gateway only
+accepts upgrades on the paths listed in `websocket_route_prefixes` (matched on whole path segments, after the path is
+normalised). Every other upgrade is answered `403` and closed. **When the list is empty (the default), no upgrade is
+accepted.**
+```rust
+options.websocket_route_prefixes = vec!["chat-services/socket.io".into()];
+```
+For an accepted path the gateway then:
+- counts the upgrade against the Global IP Bucket, and an upgrade a `WsProxyMiddleware` rejects against the Anonymous
+  IP Bucket, like a rejected HTTP request (the client address follows `trust_proxy`);
+- answers a rejection (`403`, `429`, `503` or the status of a `MiddlewareError`) with the same JSON body as the HTTP
+  path, through your `ErrorRenderer`, then closes the connection;
+- forwards the handshake, and if the upstream answers anything other than `101 Switching Protocols`, replies `502`
+  (`GatewayError::UpgradeNotSwitched`) without passing on the upstream's status, headers or body.
+
+Before 0.2.0, as in `@hodfords/nestjs-api-gateway` before 12.5.0, `Connection: Upgrade` + `Upgrade: websocket` on any
+path skipped the Route lookup, the middleware and the rate limits, and the upstream's answer was relayed when it did not
+upgrade. This is Deviation D15 from the pinned reference (12.4.2); the reference makes the same change in 12.5.0.
+
 #### Static File
 You can declare which requests are for static files by implementing `StaticRequestPredicate`. `is_static` is called before the request is processed; a request for which any predicate returns `true` is forwarded with no Route lookup, no middleware and no rate limiting.
 

@@ -36,6 +36,8 @@ pub struct ConformanceConfig {
     #[serde(default)]
     pub bypass_route_prefixes: Option<Vec<String>>,
     #[serde(default)]
+    pub websocket_route_prefixes: Option<Vec<String>>,
+    #[serde(default)]
     pub mcp: Option<Mcp>,
 }
 
@@ -363,6 +365,7 @@ impl ConformanceConfig {
         options.open_api_security_api_keys = self.open_api_security_api_keys.unwrap_or_default();
         options.pool = PoolOptions::from_undici(&self.pool);
         options.bypass_route_prefixes = self.bypass_route_prefixes.unwrap_or_default();
+        options.websocket_route_prefixes = self.websocket_route_prefixes.unwrap_or_default();
         options.documents = DocumentOptions {
             enabled: self.restful.is_enable_document,
             hide_document_ids: self.restful.hide_document_ids.unwrap_or_default(),
@@ -490,6 +493,7 @@ mod tests {
           "redis": { "host": "127.0.0.1", "port": 6399, "db": 7, "username": null, "password": null, "tls": false },
           "pool": { "connections": 100, "pipelining": 1 },
           "bypassRoutePrefixes": ["svc/public"],
+          "websocketRoutePrefixes": ["svc/socket.io"],
           "mcp": { "enabled": true, "allowedServices": ["svc"], "allowedOperations": [], "serverInfo": { "name": "x", "version": "1" } }
         }"#;
         let config: ConformanceConfig = serde_json::from_str(text).unwrap();
@@ -503,6 +507,7 @@ mod tests {
         assert_eq!(options.redis.tls, RedisTls::Disabled);
         assert_eq!(options.pool.connections, Some(100));
         assert_eq!(options.bypass_route_prefixes, ["svc/public"]);
+        assert_eq!(options.websocket_route_prefixes, ["svc/socket.io"]);
         assert!(options.mcp.unwrap().enabled);
     }
 

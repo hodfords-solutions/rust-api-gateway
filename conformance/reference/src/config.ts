@@ -48,6 +48,8 @@ export type ConformanceConfig = {
     /** Passed to undici's `Pool` unchanged (CFG-10). */
     pool: Record<string, unknown>;
     bypassRoutePrefixes?: string[];
+    /** Paths on which WebSocket upgrades are accepted (12.5.0 and later; ignored before). */
+    websocketRoutePrefixes?: string[];
     mcp?: {
         enabled: boolean;
         allowedServices?: string[];

@@ -33,6 +33,10 @@ pub struct GatewayConfig {
     pub pool: Value,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub bypass_route_prefixes: Option<Vec<String>>,
+    /// Paths on which WebSocket upgrades are accepted (Deviation D15). The reference before
+    /// 12.5.0 ignores it and accepts every upgrade.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub websocket_route_prefixes: Option<Vec<String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub mcp: Option<Mcp>,
 }
@@ -153,6 +157,13 @@ impl GatewayConfig {
             redis: Redis::default(),
             pool: serde_json::json!({ "connections": 100, "pipelining": 1 }),
             bypass_route_prefixes: None,
+            // Every prefix the WebSocket scenarios upgrade on, so that the path gate of
+            // Deviation D15 does not hide the behaviour they compare.
+            websocket_route_prefixes: Some(
+                ["svc", "oauth", "other", "down", "nowhere"]
+                    .map(String::from)
+                    .to_vec(),
+            ),
             mcp: Some(Mcp {
                 enabled: true,
                 allowed_services: None,

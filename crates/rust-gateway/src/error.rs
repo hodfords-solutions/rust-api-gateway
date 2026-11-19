@@ -106,6 +106,11 @@ pub enum GatewayError {
     /// request could not be sent (FWD-22): 503 `application/json` `{"message":"Service unavailable."}`.
     #[error("the upstream is unavailable")]
     UpstreamUnavailable,
+    /// The upstream answered a WebSocket upgrade without switching protocols (WS-15,
+    /// Deviation D15): 502 `{"statusCode":502,"message":"Upstream did not switch protocols."}`.
+    /// The upstream's own answer is never passed on.
+    #[error("the upstream did not switch protocols")]
+    UpgradeNotSwitched,
     /// `/document-json` names no service with a loaded document (DOC-14, Deviation D5):
     /// 404 `{"message":"Not Found","statusCode":404}`, the body of NestJS's
     /// `NotFoundException`.
@@ -136,6 +141,7 @@ impl GatewayError {
             | GatewayError::UpstreamUnavailable => StatusCode::SERVICE_UNAVAILABLE,
             GatewayError::Middleware { status, .. } => *status,
             GatewayError::RateLimited { .. } => StatusCode::TOO_MANY_REQUESTS,
+            GatewayError::UpgradeNotSwitched => StatusCode::BAD_GATEWAY,
             GatewayError::Internal { .. } => StatusCode::INTERNAL_SERVER_ERROR,
         }
     }
@@ -193,6 +199,9 @@ impl GatewayError {
             }
             GatewayError::UpstreamUnavailable => {
                 r#"{"message":"Service unavailable."}"#.to_string()
+            }
+            GatewayError::UpgradeNotSwitched => {
+                r#"{"statusCode":502,"message":"Upstream did not switch protocols."}"#.to_string()
             }
         }
     }
@@ -485,6 +494,14 @@ mod tests {
                 503,
                 "application/json".into(),
                 r#"{"message":"Service unavailable."}"#.into()
+            )
+        );
+        assert_eq!(
+            view(&GatewayError::UpgradeNotSwitched),
+            (
+                502,
+                utf8.clone(),
+                r#"{"statusCode":502,"message":"Upstream did not switch protocols."}"#.into()
             )
         );
         assert_eq!(

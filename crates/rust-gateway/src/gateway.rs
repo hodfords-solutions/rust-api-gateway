@@ -153,6 +153,11 @@ pub struct GatewayOptions {
     pub pool: PoolOptions,
     /// `bypassRoutePrefixes` (CFG-12).
     pub bypass_route_prefixes: Vec<String>,
+    /// `websocketRoutePrefixes` (CFG-20, Deviation D15): the paths on which WebSocket
+    /// upgrades are accepted, matched on whole path segments against the normalised URL
+    /// (`svc/socket.io` or `/svc/socket.io`). Every other upgrade is answered 403 and closed.
+    /// Empty (the default): no upgrade is accepted.
+    pub websocket_route_prefixes: Vec<String>,
     /// `restful` (CFG-08, CFG-14).
     pub documents: DocumentOptions,
     /// `scalarOptions` (CFG-11), passed to the document page.
@@ -179,6 +184,7 @@ impl GatewayOptions {
             redis,
             pool: PoolOptions::default(),
             bypass_route_prefixes: Vec::new(),
+            websocket_route_prefixes: Vec::new(),
             documents: DocumentOptions::default(),
             scalar_options: None,
             #[cfg(feature = "mcp")]
@@ -450,6 +456,11 @@ impl GatewayBuilder {
             return Err(BuildError::NoRuntime);
         }
         let options = self.options;
+        if options.websocket_route_prefixes.is_empty() {
+            tracing::info!(
+                "websocket_route_prefixes is empty: every WebSocket upgrade will be refused"
+            );
+        }
         let limiter = RateLimiter::new(&options.rate_limit, &options.redis)?;
         let tls = self
             .upstream_tls

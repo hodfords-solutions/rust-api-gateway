@@ -333,7 +333,8 @@ async fn d11_x_powered_by_is_off_by_default_and_can_be_turned_on() {
             "rejected WebSocket upgrade",
             "GET /nowhere/socket HTTP/1.1\r\nConnection: Upgrade\r\nUpgrade: websocket\r\n\
              Sec-WebSocket-Version: 13\r\nSec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==",
-            "HTTP/1.1 503 Service Unavailable",
+            // Not under `websocket_route_prefixes` (Deviation D15).
+            "HTTP/1.1 403 Forbidden",
         ),
     ];
     for enabled in [None, Some(false), Some(true)] {

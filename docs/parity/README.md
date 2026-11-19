@@ -36,7 +36,7 @@ A row marked **confirm** states behaviour read from code or inferred from a depe
 
 ## Deviations
 
-Approved on 2026-11-18 (D10 and the wider D4 after the first Conformance Tests ran; D11, D13 and D14 once the areas they concern were implemented). There is no D12: the exact bytes it would have excused (WS-15) were reproduced. Each is implemented as described, tested Rust-only, and the reference behaviour is recorded in the row.
+Approved on 2026-11-18 (D10 and the wider D4 after the first Conformance Tests ran; D11, D13 and D14 once the areas they concern were implemented), and D15 on 2026-11-19. There is no D12: the exact bytes it would have excused (WS-15) were reproduced, until D15 replaced them with a 502. Each is implemented as described, tested Rust-only, and the reference behaviour is recorded in the row.
 
 | # | Deviation | Reference behaviour | Rows |
 |---|---|---|---|
@@ -53,6 +53,7 @@ Approved on 2026-11-18 (D10 and the wider D4 after the first Conformance Tests r
 | D11 | The gateway does not send `X-Powered-By` unless the application turns it on (`GatewayBuilder::x_powered_by(true)`) | Every response carries `X-Powered-By: Express`, an Express default | FWD-15, REQ-23 |
 | D13 | Edge cases of the MCP transport follow the Rust SDK `rmcp`: JSON-RPC batches, malformed or unacceptable requests, a response sent by the client, SSE framing, and some error codes. `initialize`, `tools/list`, `tools/call` and authentication match the reference | The TypeScript SDK's answers: batches accepted, JSON-RPC error bodies with status 400, 406 or 415, an `event: message` line in SSE | MCP-02 |
 | D14 | Tracing sends one `traceparent` to the upstream, a WebSocket handshake span continues the client's trace and ends at the handshake, and only what the gateway instruments has spans | Auto-instrumentation: a second `traceparent` is appended when the client sent one, a WebSocket span starts a new trace and lasts until the tunnel closes, and Express, NestJS, DNS and Redis have spans | OTEL-02 to OTEL-04 |
+| D15 | WebSocket upgrades are gated: accepted only under `websocket_route_prefixes` (none by default), counted against the Global and Anonymous IP Buckets, the non-WebSocket check first, and an upstream that does not switch protocols gets the client a 502. Security fix, approved on 2026-11-19; the Reference Gateway makes the same change in 12.5.0, so D15 turns back into parity when the reference pin moves to 12.5.0 | Every upgrade on every path is forwarded with no rate limit, the method check runs after the middleware, and an upstream that answers without upgrading has its status line and body relayed to the client | WS-01, WS-04 to WS-06, WS-15, WS-17, WS-18, CFG-20, RL-24 |
 
 D9 is open-ended: each uncommon query shape found to differ is added to FWD-04 as it is discovered.
 

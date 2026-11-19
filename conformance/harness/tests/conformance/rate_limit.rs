@@ -10,7 +10,7 @@
 
 use std::time::{Duration, Instant};
 
-use conformance::client::{self, Request, Response};
+use conformance::client::{Request, Response};
 use conformance::mock::{Behaviour, Reply};
 use conformance::runner::{Observations, run};
 use serde_json::{Value, json};
@@ -748,13 +748,14 @@ async fn rl_20_rejection_responses() {
     .await;
 }
 
-/// RL-24: Static Requests, Bypass Requests, WebSocket upgrades and requests with no Route are
-/// never rate limited.
+/// RL-24: Static Requests, Bypass Requests and requests with no Route are never rate
+/// limited. WebSocket upgrades are, under Deviation D15 (WS-18); the reference side is
+/// `deviations::d15_reference_upgrades_every_path_without_limits`.
 #[tokio::test]
 async fn rl_24_scope() {
     run("rl_24_scope", &["RL-24"], |target| async move {
         let mut obs = Observations::new();
-        let (mock, gw) = users_gateway(&target, |mut c| {
+        let (_mock, gw) = users_gateway(&target, |mut c| {
             c.bypass_route_prefixes = Some(vec!["svc/public".into()]);
             c.throttler(|t| {
                 t.global_ip_rate_limit = 1.0;
@@ -780,29 +781,11 @@ async fn rl_24_scope() {
         assert_eq!(statuses(&no_route), [405, 405, 405]);
         obs.record("no matching Route", statuses(&no_route));
 
-        // The sockets stay open until the end: the reference crashes (EPIPE) when a client
-        // drops a tunnelled socket it is still writing to.
-        // The upgrade's upstream target is not the stripped path, so every request gets the
-        // WebSocket behaviour while upgrading.
-        mock.set_default(Behaviour::WebSocketEcho);
-        let mut sockets = Vec::new();
-        let mut upgrades = Vec::new();
-        for _ in 0..3 {
-            let upgrade =
-                client::websocket(gw.addr(), &client::upgrade_request("/svc/socket")).await?;
-            upgrades.push(upgrade.response_head.status);
-            sockets.push(upgrade.socket);
-        }
-        assert_eq!(upgrades, [101, 101, 101]);
-        obs.record("WebSocket upgrades", upgrades);
-        mock.set_default(Behaviour::Echo);
-
         // The limiter is active: the first Routed Request opens the Bucket, the next is full.
         let routed = send_all(&gw, &vec![Request::get("/svc/v1/users"); 2]).await?;
         assert_eq!(statuses(&routed), [200, 429]);
         obs.record("Routed Requests afterwards", statuses(&routed));
         drop(gw);
-        drop(sockets);
         Ok(obs)
     })
     .await;

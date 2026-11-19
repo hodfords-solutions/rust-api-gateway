@@ -1,5 +1,5 @@
-//! Rust-only tests of WebSocket proxying (area 06): Deviation D1 (WS-05), the order of the
-//! middleware and the WS-06 check, and tunnels on shutdown.
+//! Rust-only tests of WebSocket proxying (area 06): Deviation D1 (WS-05), the WS-06 check,
+//! and tunnels on shutdown. The gate of Deviation D15 is in `gateway_websocket_gate.rs`.
 
 mod gateway_common;
 mod websocket_common;
@@ -69,22 +69,18 @@ fn split(response: &[u8]) -> (String, Vec<String>, String) {
 }
 
 /// D1 (WS-05): a rejected upgrade is answered with the HTTP path's error and the connection
-/// is closed; the reference leaves it open with no answer. The middleware run before the
-/// WS-06 check, so a rejected `POST` upgrade is answered too.
+/// is closed; the reference leaves it open with no answer.
 #[tokio::test]
 async fn d1_rejected_upgrades_are_answered_and_closed() {
     let upstream = EchoUpstream::start().await;
+    let mut gateway_options = options(vec![service(&upstream)]);
+    gateway_options.websocket_route_prefixes = vec!["svc".into(), "nowhere".into()];
     let served = serve(
-        Gateway::builder(options(vec![service(&upstream)])).websocket_middleware(Scripted),
+        Gateway::builder(gateway_options).websocket_middleware(Scripted),
         true,
     )
     .await;
-    let post = {
-        let mut request = upgrade_request("/svc/socket", "x-ws: deny\r\n");
-        request.splice(0..3, b"POST".iter().copied());
-        request
-    };
-    let cases: [(&str, Vec<u8>, &str, &str); 5] = [
+    let cases: [(&str, Vec<u8>, &str, &str); 4] = [
         (
             "middleware denies",
             upgrade_request("/svc/socket", "x-ws: deny\r\n"),
@@ -108,12 +104,6 @@ async fn d1_rejected_upgrades_are_answered_and_closed() {
             upgrade_request("/nowhere/socket", ""),
             "HTTP/1.1 503 Service Unavailable",
             r#"{"message":"Service Unavailable","statusCode":503}"#,
-        ),
-        (
-            "middleware denies a POST upgrade",
-            post,
-            "HTTP/1.1 403 Forbidden",
-            r#"{"message":"Forbidden","statusCode":403}"#,
         ),
     ];
     for (label, request, status, body) in cases {

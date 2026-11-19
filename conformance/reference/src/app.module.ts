@@ -37,6 +37,9 @@ const tls = redisTls();
             },
             pool: config.pool,
             bypassRoutePrefixes: config.bypassRoutePrefixes,
+            // Not in the pinned reference's ApiGatewayOption before 12.5.0; spread so that
+            // the option type does not reject it.
+            ...({ websocketRoutePrefixes: config.websocketRoutePrefixes } as object),
             mcp: mcpOption(config.mcp)
         })
     ],

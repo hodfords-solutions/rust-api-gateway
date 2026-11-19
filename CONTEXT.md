@@ -66,6 +66,10 @@ _Avoid_: validated request, asset request
 A request under a configured path prefix that is forwarded without Route matching, middleware or rate limiting.
 _Avoid_: whitelisted request
 
+**WebSocket Route**:
+A path under a configured `websocket_route_prefixes` entry, the only paths on which a WebSocket upgrade is accepted (Deviation D15).
+_Avoid_: socket path, ws whitelist
+
 ### Rate limiting
 
 **Identity**:
