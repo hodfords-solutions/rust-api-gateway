@@ -22,6 +22,11 @@ rustup toolchain install nightly --profile minimal
 cargo install cargo-fuzz --locked
 ```
 
+A prebuilt cargo-fuzz from `cargo binstall` is the musl build on Linux, and cargo-fuzz
+builds for the triple it was itself built for unless told otherwise; the sanitizer cannot
+link there. With such a binary, pass `--target x86_64-unknown-linux-gnu` to
+`cargo fuzz run` (`run-all.sh` always passes the nightly host triple).
+
 `fuzz/` is its own Cargo workspace (the root `Cargo.toml` excludes it) with its own lock file.
 cargo-fuzz builds with `--cfg fuzzing`, which compiles `api_gateway::fuzzing`
 (`crates/rust-gateway/src/fuzzing.rs`): thin wrappers around the crate-private parsers the
