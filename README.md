@@ -105,6 +105,7 @@ Things to know:
 - Handlers are registered on the builder, where the NestJS library discovers decorators. Handlers of one kind run in ascending priority (`*_with_priority`, default 1), then in registration order.
 - The gateway sends no `X-Powered-By` header, where the Reference Gateway sends `X-Powered-By: Express` (Deviation D11). `GatewayBuilder::x_powered_by(true)` turns it on.
 - `GatewayBuilder::layer` wraps every HTTP response of the gateway in your own tower layer, for CORS and default headers (see [Response layer](#response-layer-cors-and-default-headers)).
+- In an MCP tool call, a `header_<x>` argument whose name differs only in letter case from a header your proxy middleware sets is not sent: the middleware's value is the only line of that name (Deviation D16, since 0.1.2). Headers that frame the request (`host`, `content-length`, `connection` and the like) follow undici's rules, as in the Reference Gateway.
 
 A complete program is the example [`crates/rust-gateway/examples/quickstart.rs`](crates/rust-gateway/examples/quickstart.rs) (`cargo run -p api-gateway --example quickstart`).
 

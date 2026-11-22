@@ -51,6 +51,10 @@ pub(crate) enum PoolError {
     Http(#[from] hyper::Error),
     #[error("the upstream sent no response headers in time")]
     HeadersTimeout,
+    /// A request sent over a pool [`with_raw_heads`](UpstreamPool::with_raw_heads) without
+    /// its [`RawHead`]: nothing is sent.
+    #[error("the request has no head to write")]
+    MissingHead,
 }
 
 impl PoolError {
@@ -66,6 +70,7 @@ impl PoolError {
             Self::Tls(_) => "ERR_TLS",
             Self::Http(_) => "UND_ERR_SOCKET",
             Self::HeadersTimeout => "UND_ERR_HEADERS_TIMEOUT",
+            Self::MissingHead => "Error",
         }
     }
 }
@@ -120,8 +125,15 @@ impl Origin {
     }
 }
 
-struct Idle {
+/// One connection: hyper's sender, and for a connection that writes [`RawHead`]s, the slot
+/// its [`RawHeadIo`] takes the next head from.
+struct Connection {
     sender: SendRequest<UpstreamRequestBody>,
+    head_slot: Option<HeadSlot>,
+}
+
+struct Idle {
+    connection: Connection,
     since: Instant,
 }
 
@@ -168,8 +180,9 @@ impl UpstreamPool {
         }
     }
 
-    /// This pool, with connections that write the head carried in a request's
-    /// [`RAW_HEAD_HEADER`] instead of hyper's (see [`RawHeadIo`]).
+    /// This pool, with connections that write the [`RawHead`] each request carries in its
+    /// extensions instead of hyper's head (see [`RawHeadIo`]). A request without one is
+    /// refused.
     #[cfg_attr(not(feature = "mcp"), allow(dead_code))]
     pub(crate) fn with_raw_heads(mut self) -> Self {
         self.raw_heads = true;
@@ -186,8 +199,14 @@ impl UpstreamPool {
     /// early is closed (FWD-21).
     pub(crate) async fn send(
         self: &Arc<Self>,
-        request: Request<UpstreamRequestBody>,
+        mut request: Request<UpstreamRequestBody>,
     ) -> Result<Response<PooledBody>, PoolError> {
+        // Only the request's own extension is ever written as a head; nothing a request
+        // carries in its headers is.
+        let head = request.extensions_mut().remove::<RawHead>();
+        if self.raw_heads && head.is_none() {
+            return Err(PoolError::MissingHead);
+        }
         let permit = match &self.permits {
             Some(permits) => Some(
                 Arc::clone(permits)
@@ -197,11 +216,15 @@ impl UpstreamPool {
             ),
             None => None,
         };
-        let mut sender = match self.checkout() {
-            Some(sender) => sender,
+        let mut connection = match self.checkout() {
+            Some(connection) => connection,
             None => self.connect().await?,
         };
-        let sent = sender.send_request(request);
+        if let (Some(slot), Some(head)) = (&connection.head_slot, head) {
+            // The connection is checked out, so hyper writes no other head before this one.
+            *slot.lock().unwrap_or_else(PoisonError::into_inner) = Some(head);
+        }
+        let sent = connection.sender.send_request(request);
         let response = match self.options.headers_timeout {
             Some(limit) => tokio::time::timeout(limit, sent)
                 .await
@@ -209,36 +232,36 @@ impl UpstreamPool {
             None => sent.await?,
         };
         let (parts, body) = response.into_parts();
-        let body = PooledBody::new(body, sender, permit, Arc::clone(self));
+        let body = PooledBody::new(body, connection, permit, Arc::clone(self));
         Ok(Response::from_parts(parts, body))
     }
 
-    fn checkout(&self) -> Option<SendRequest<UpstreamRequestBody>> {
+    fn checkout(&self) -> Option<Connection> {
         let mut idle = self.idle.lock().unwrap_or_else(PoisonError::into_inner);
         while let Some(entry) = idle.pop_back() {
             if entry.since.elapsed() < self.options.keep_alive_timeout
-                && !entry.sender.is_closed()
-                && entry.sender.is_ready()
+                && !entry.connection.sender.is_closed()
+                && entry.connection.sender.is_ready()
             {
-                return Some(entry.sender);
+                return Some(entry.connection);
             }
         }
         None
     }
 
-    fn checkin(&self, sender: SendRequest<UpstreamRequestBody>) {
-        if sender.is_closed() {
+    fn checkin(&self, connection: Connection) {
+        if connection.sender.is_closed() {
             return;
         }
         let mut idle = self.idle.lock().unwrap_or_else(PoisonError::into_inner);
         idle.retain(|entry| entry.since.elapsed() < self.options.keep_alive_timeout);
         idle.push_back(Idle {
-            sender,
+            connection,
             since: Instant::now(),
         });
     }
 
-    async fn connect(&self) -> Result<SendRequest<UpstreamRequestBody>, PoolError> {
+    async fn connect(&self) -> Result<Connection, PoolError> {
         let address = (self.origin.host.as_str(), self.origin.port);
         let tcp = match self.options.connect_timeout {
             Some(limit) => tokio::time::timeout(limit, TcpStream::connect(address))
@@ -257,18 +280,38 @@ impl UpstreamPool {
                     .await
                     .map_err(|e| PoolError::Tls(e.to_string()))?;
                 if self.raw_heads {
-                    handshake(RawHeadIo::new(stream)).await
+                    let slot = HeadSlot::default();
+                    with_slot(
+                        handshake(RawHeadIo::new(stream, Arc::clone(&slot))).await,
+                        slot,
+                    )
                 } else {
-                    handshake(stream).await
+                    with_slot(handshake(stream).await, None)
                 }
             }
             None if self.origin.https => Err(PoolError::Tls(
                 "no TLS configuration for an https upstream".to_string(),
             )),
-            None if self.raw_heads => handshake(RawHeadIo::new(tcp)).await,
-            None => handshake(tcp).await,
+            None if self.raw_heads => {
+                let slot = HeadSlot::default();
+                with_slot(
+                    handshake(RawHeadIo::new(tcp, Arc::clone(&slot))).await,
+                    slot,
+                )
+            }
+            None => with_slot(handshake(tcp).await, None),
         }
     }
+}
+
+fn with_slot(
+    sender: Result<SendRequest<UpstreamRequestBody>, PoolError>,
+    head_slot: impl Into<Option<HeadSlot>>,
+) -> Result<Connection, PoolError> {
+    Ok(Connection {
+        sender: sender?,
+        head_slot: head_slot.into(),
+    })
 }
 
 async fn handshake<S>(stream: S) -> Result<SendRequest<UpstreamRequestBody>, PoolError>
@@ -286,42 +329,72 @@ where
     Ok(sender)
 }
 
-/// The header that carries a request's exact head (hex-encoded) on a connection of a pool
-/// made [`with_raw_heads`](UpstreamPool::with_raw_heads).
+/// The exact head of a request (request line, headers and blank line) for a connection of a
+/// pool made [`with_raw_heads`](UpstreamPool::with_raw_heads), carried as a request
+/// extension, and the length of the body that follows it.
+///
+/// It travels apart from the request's headers on purpose: no header a client, a tool
+/// argument or middleware supplies can be read as a head.
+#[derive(Debug, Clone)]
 #[cfg_attr(not(feature = "mcp"), allow(dead_code))]
-pub(crate) const RAW_HEAD_HEADER: &str = "x-rust-gateway-raw-head";
+pub(crate) struct RawHead {
+    head: Bytes,
+    body_length: u64,
+}
 
-/// A connection that writes each request head as the request's [`RAW_HEAD_HEADER`] gives it.
+impl RawHead {
+    /// `head` must be a complete head written by the gateway, and `body_length` the length
+    /// of the body the request sends; the request hyper sends must frame its body the same
+    /// way (a `content-length` of `body_length`, none when it is 0, never chunked).
+    #[cfg_attr(not(feature = "mcp"), allow(dead_code))]
+    pub(crate) fn new(head: impl Into<Bytes>, body_length: u64) -> Self {
+        Self {
+            head: head.into(),
+            body_length,
+        }
+    }
+
+    #[cfg(all(test, feature = "mcp"))]
+    pub(crate) fn head(&self) -> &[u8] {
+        &self.head
+    }
+}
+
+/// The [`RawHead`] of the request a connection is about to write.
+type HeadSlot = Arc<Mutex<Option<RawHead>>>;
+
+/// A connection that writes each request's [`RawHead`] in place of hyper's head.
 ///
 /// hyper writes the headers of a map grouped by name, in lower case, after the request line
 /// of a parsed URI. The MCP executor must write undici's head instead: names in their case,
-/// repeated names apart, a target `http::Uri` refuses (MCP-17, MCP-18). The request hyper
-/// sends carries that head and the same framing; this wrapper replaces hyper's head with it
-/// and passes the body through, counting it by the head's `content-length` to know where
-/// the next head starts. A head without the header, or with a `transfer-encoding`, is
-/// written as it is and the connection passes everything through from then on.
+/// repeated names apart, a target `http::Uri` refuses (MCP-17, MCP-18). [`UpstreamPool::send`]
+/// puts the request's head in the connection's slot before hyper writes it; this wrapper
+/// discards hyper's head, writes the slot's instead, and passes the body through, counting it
+/// by the head's body length to know where the next head starts. A head hyper writes with no
+/// head in the slot, or with a body framed otherwise, fails the request and nothing of it is
+/// written.
 struct RawHeadIo<S> {
     inner: S,
+    slot: HeadSlot,
     /// The head hyper is writing, until its blank line.
     head: Vec<u8>,
     /// Bytes to write to `inner` before anything else, from `pending_at` on.
-    pending: Vec<u8>,
+    pending: Bytes,
     pending_at: usize,
     /// Body bytes still to pass through before the next head.
     body_left: u64,
-    passthrough: bool,
 }
 
 impl<S> RawHeadIo<S> {
     #[cfg_attr(not(feature = "mcp"), allow(dead_code))]
-    fn new(inner: S) -> Self {
+    fn new(inner: S, slot: HeadSlot) -> Self {
         Self {
             inner,
+            slot,
             head: Vec::new(),
-            pending: Vec::new(),
+            pending: Bytes::new(),
             pending_at: 0,
             body_left: 0,
-            passthrough: false,
         }
     }
 }
@@ -337,52 +410,33 @@ impl<S: tokio::io::AsyncWrite + Unpin> RawHeadIo<S> {
             }
             self.pending_at += written;
         }
-        self.pending.clear();
+        self.pending = Bytes::new();
         self.pending_at = 0;
         Poll::Ready(Ok(()))
     }
 }
 
-/// The head to write in place of `head` (a complete head, blank line included), and the
-/// length of the body that follows it: `None` when it is not known (`transfer-encoding`).
-pub(crate) fn rewrite_head(head: &[u8]) -> (Vec<u8>, Option<u64>) {
-    let marker = format!("\r\n{RAW_HEAD_HEADER}:");
-    let lower = head.to_ascii_lowercase();
-    let replacement = lower
-        .windows(marker.len())
-        .position(|w| w == marker.as_bytes())
-        .and_then(|at| {
-            let start = at + marker.len();
-            let end = start + head[start..].windows(2).position(|w| w == b"\r\n")?;
-            decode_hex(head[start..end].trim_ascii())
-        })
-        .unwrap_or_else(|| head.to_vec());
-    let mut length = Some(0);
-    for line in replacement.split(|&b| b == b'\n').skip(1) {
+/// The length of the body that follows a head hyper wrote: its `content-length`, 0 without
+/// one, and `None` when it cannot be known from the head (chunked, or several lengths).
+fn hyper_body_length(head: &[u8]) -> Option<u64> {
+    let mut length = None;
+    for line in head.split(|&b| b == b'\n').skip(1) {
         let line = line.strip_suffix(b"\r").unwrap_or(line);
         let Some(colon) = line.iter().position(|&b| b == b':') else {
             continue;
         };
         let (name, value) = (&line[..colon], line[colon + 1..].trim_ascii());
         if name.eq_ignore_ascii_case(b"transfer-encoding") {
-            length = None;
-            break;
+            return None;
         }
         if name.eq_ignore_ascii_case(b"content-length") {
-            length = std::str::from_utf8(value).ok().and_then(|v| v.parse().ok());
+            if length.is_some() {
+                return None;
+            }
+            length = Some(std::str::from_utf8(value).ok()?.parse().ok()?);
         }
     }
-    (replacement, length)
-}
-
-fn decode_hex(text: &[u8]) -> Option<Vec<u8>> {
-    if !text.len().is_multiple_of(2) {
-        return None;
-    }
-    let digit = |b: u8| (b as char).to_digit(16).map(|d| d as u8);
-    text.chunks(2)
-        .map(|pair| Some(digit(pair[0])? << 4 | digit(pair[1])?))
-        .collect()
+    Some(length.unwrap_or(0))
 }
 
 impl<S: tokio::io::AsyncRead + Unpin> tokio::io::AsyncRead for RawHeadIo<S> {
@@ -403,9 +457,6 @@ impl<S: tokio::io::AsyncWrite + Unpin> tokio::io::AsyncWrite for RawHeadIo<S> {
     ) -> Poll<std::io::Result<usize>> {
         let this = &mut *self;
         std::task::ready!(this.poll_pending(cx))?;
-        if this.passthrough {
-            return Pin::new(&mut this.inner).poll_write(cx, buf);
-        }
         if this.body_left > 0 {
             let n = buf
                 .len()
@@ -425,14 +476,25 @@ impl<S: tokio::io::AsyncWrite + Unpin> tokio::io::AsyncWrite for RawHeadIo<S> {
             return Poll::Ready(Ok(buf.len()));
         };
         this.head.truncate(end);
-        let head = std::mem::take(&mut this.head);
-        let (replacement, length) = rewrite_head(&head);
-        this.pending = replacement;
-        this.pending_at = 0;
-        match length {
-            Some(length) => this.body_left = length,
-            None => this.passthrough = true,
+        let hyper_head = std::mem::take(&mut this.head);
+        let raw = this
+            .slot
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .take();
+        let Some(raw) = raw else {
+            return Poll::Ready(Err(std::io::Error::other(
+                "no head to write for this request",
+            )));
+        };
+        if hyper_body_length(&hyper_head) != Some(raw.body_length) {
+            return Poll::Ready(Err(std::io::Error::other(
+                "the request body is not framed as its head says",
+            )));
         }
+        this.pending = raw.head;
+        this.pending_at = 0;
+        this.body_left = raw.body_length;
         if let Poll::Ready(Err(error)) = this.poll_pending(cx) {
             return Poll::Ready(Err(error));
         }
@@ -453,7 +515,7 @@ impl<S: tokio::io::AsyncWrite + Unpin> tokio::io::AsyncWrite for RawHeadIo<S> {
 /// A response body that holds its connection until it ends.
 pub(crate) struct PooledBody {
     inner: Incoming,
-    sender: Option<SendRequest<UpstreamRequestBody>>,
+    connection: Option<Connection>,
     permit: Option<OwnedSemaphorePermit>,
     pool: Arc<UpstreamPool>,
     finished: bool,
@@ -463,7 +525,7 @@ pub(crate) struct PooledBody {
 impl PooledBody {
     fn new(
         inner: Incoming,
-        sender: SendRequest<UpstreamRequestBody>,
+        connection: Connection,
         permit: Option<OwnedSemaphorePermit>,
         pool: Arc<UpstreamPool>,
     ) -> Self {
@@ -474,7 +536,7 @@ impl PooledBody {
             .map(|limit| Box::pin(tokio::time::sleep(limit)));
         Self {
             inner,
-            sender: Some(sender),
+            connection: Some(connection),
             permit,
             pool,
             finished,
@@ -509,7 +571,7 @@ impl HttpBody for PooledBody {
                 Poll::Ready(Some(Ok(frame)))
             }
             Poll::Ready(Some(Err(error))) => {
-                this.sender = None;
+                this.connection = None;
                 Poll::Ready(Some(Err(error.into())))
             }
             Poll::Ready(None) => {
@@ -520,7 +582,7 @@ impl HttpBody for PooledBody {
                 if let Some(timer) = this.idle_timer.as_mut()
                     && timer.as_mut().poll(cx).is_ready()
                 {
-                    this.sender = None;
+                    this.connection = None;
                     return Poll::Ready(Some(Err("the upstream body timed out".into())));
                 }
                 Poll::Pending
@@ -540,7 +602,7 @@ impl HttpBody for PooledBody {
 impl Drop for PooledBody {
     fn drop(&mut self) {
         let permit = self.permit.take();
-        let Some(mut sender) = self.sender.take() else {
+        let Some(mut connection) = self.connection.take() else {
             return;
         };
         if !self.finished {
@@ -553,11 +615,11 @@ impl Drop for PooledBody {
         };
         runtime.spawn(async move {
             // The connection becomes ready again once hyper has read the whole response.
-            if std::future::poll_fn(|cx| sender.poll_ready(cx))
+            if std::future::poll_fn(|cx| connection.sender.poll_ready(cx))
                 .await
                 .is_ok()
             {
-                pool.checkin(sender);
+                pool.checkin(connection);
             }
             drop(permit);
         });
@@ -569,50 +631,96 @@ mod tests {
     use super::*;
 
     #[test]
-    fn raw_heads_replace_hyper_heads() {
-        let raw =
-            "POST /a/{b}/ HTTP/1.1\r\nhost: h\r\nX-A: 1\r\nx-a: 2\r\ncontent-length: 3\r\n\r\n";
-        let hex: String = raw.bytes().map(|b| format!("{b:02x}")).collect();
-        let hyper = format!(
-            "POST / HTTP/1.1\r\nhost: h\r\nx-a: 1\r\nX-Rust-Gateway-Raw-Head: {hex}\r\ncontent-length: 3\r\n\r\n"
+    fn hyper_body_lengths() {
+        assert_eq!(
+            hyper_body_length(b"GET / HTTP/1.1\r\nhost: h\r\n\r\n"),
+            Some(0)
         );
         assert_eq!(
-            rewrite_head(hyper.as_bytes()),
-            (raw.as_bytes().to_vec(), Some(3))
+            hyper_body_length(b"POST / HTTP/1.1\r\nContent-Length: 3\r\n\r\n"),
+            Some(3)
         );
-        let plain = b"GET / HTTP/1.1\r\nhost: h\r\n\r\n";
-        assert_eq!(rewrite_head(plain), (plain.to_vec(), Some(0)));
-        let chunked = b"POST / HTTP/1.1\r\ntransfer-encoding: chunked\r\n\r\n";
-        assert_eq!(rewrite_head(chunked).1, None);
+        assert_eq!(
+            hyper_body_length(b"POST / HTTP/1.1\r\ntransfer-encoding: chunked\r\n\r\n"),
+            None
+        );
+        assert_eq!(
+            hyper_body_length(b"POST / HTTP/1.1\r\ncontent-length: 3\r\ncontent-length: 3\r\n\r\n"),
+            None
+        );
     }
 
-    #[tokio::test]
-    async fn raw_head_io_rewrites_each_head_and_passes_bodies() {
+    async fn written(
+        io: RawHeadIo<tokio::io::DuplexStream>,
+        mut server: tokio::io::DuplexStream,
+        writes: &[&[u8]],
+    ) -> (std::io::Result<()>, String) {
         use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _};
-        let (client, mut server) = tokio::io::duplex(4096);
-        let mut io = RawHeadIo::new(client);
-        let head = |raw: &str| {
-            let hex: String = raw.bytes().map(|b| format!("{b:02x}")).collect();
-            format!("GET / HTTP/1.1\r\n{RAW_HEAD_HEADER}: {hex}\r\n\r\n")
-        };
-        let first = "PUT /{x} HTTP/1.1\r\nA: 1\r\ncontent-length: 4\r\n\r\n";
-        let second = "GET /y HTTP/1.1\r\nB: 2\r\n\r\n";
-        // Head and body in one write, then a head split over two writes.
-        let mut bytes = head(first).into_bytes();
-        bytes.extend_from_slice(b"body");
-        let mut at = 0;
-        while at < bytes.len() {
-            at += io.write(&bytes[at..]).await.unwrap();
+        let mut io = io;
+        let mut result = Ok(());
+        for bytes in writes {
+            if let Err(error) = io.write_all(bytes).await {
+                result = Err(error);
+                break;
+            }
         }
-        let second_head = head(second);
-        let (a, b) = second_head.split_at(10);
-        io.write_all(a.as_bytes()).await.unwrap();
-        io.write_all(b.as_bytes()).await.unwrap();
-        io.flush().await.unwrap();
+        if result.is_ok() {
+            result = io.flush().await;
+        }
         drop(io);
         let mut out = String::new();
         server.read_to_string(&mut out).await.unwrap();
+        (result, out)
+    }
+
+    #[tokio::test]
+    async fn raw_head_io_writes_the_slot_head_and_passes_bodies() {
+        let slot = HeadSlot::default();
+        let (client, server) = tokio::io::duplex(4096);
+        let io = RawHeadIo::new(client, Arc::clone(&slot));
+        let first = "PUT /{x} HTTP/1.1\r\nA: 1\r\ncontent-length: 4\r\n\r\n";
+        *slot.lock().unwrap() = Some(RawHead::new(first, 4));
+        // hyper's head, whatever it holds, is never written; its body is.
+        let hyper_first =
+            b"PUT / HTTP/1.1\r\nx-rust-gateway-raw-head: 474554\r\ncontent-length: 4\r\n\r\nbody";
+        let mut io = io;
+        {
+            use tokio::io::AsyncWriteExt as _;
+            io.write_all(hyper_first).await.unwrap();
+        }
+        let second = "GET /y HTTP/1.1\r\nB: 2\r\n\r\n";
+        *slot.lock().unwrap() = Some(RawHead::new(second, 0));
+        let hyper_second = b"GET / HTTP/1.1\r\nb: 2\r\n\r\n";
+        let (a, b) = hyper_second.split_at(10);
+        let (result, out) = written(io, server, &[a, b]).await;
+        result.unwrap();
         assert_eq!(out, format!("{first}body{second}"));
+    }
+
+    #[tokio::test]
+    async fn raw_head_io_refuses_a_head_it_was_not_given() {
+        // No head in the slot: nothing is written.
+        let (client, server) = tokio::io::duplex(4096);
+        let io = RawHeadIo::new(client, HeadSlot::default());
+        let (result, out) = written(io, server, &[b"GET / HTTP/1.1\r\nhost: h\r\n\r\n"]).await;
+        assert!(result.is_err());
+        assert_eq!(out, "");
+        // hyper framing its body otherwise than the head says: nothing is written.
+        for (hyper, length) in [
+            (
+                &b"POST / HTTP/1.1\r\ntransfer-encoding: chunked\r\n\r\n"[..],
+                0,
+            ),
+            (&b"POST / HTTP/1.1\r\ncontent-length: 3\r\n\r\n"[..], 4),
+            (&b"POST / HTTP/1.1\r\n\r\n"[..], 4),
+        ] {
+            let slot = HeadSlot::default();
+            *slot.lock().unwrap() = Some(RawHead::new("POST /x HTTP/1.1\r\n\r\n", length));
+            let (client, server) = tokio::io::duplex(4096);
+            let (result, out) = written(RawHeadIo::new(client, slot), server, &[hyper]).await;
+            assert!(result.is_err());
+            assert_eq!(out, "");
+        }
     }
 
     #[test]

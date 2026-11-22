@@ -78,6 +78,12 @@ pub struct PathArgumentError {
 /// Headers, in order of increasing precedence: `content-type: application/json`, the
 /// `header_<x>` arguments except `exclude_headers` names (compared case-insensitively), then
 /// the middleware headers (kebab-cased). Empty values are dropped.
+///
+/// **Deviation D16:** an argument whose name differs only in letter case from a middleware
+/// header is dropped, so the middleware's value is the only line of that name. The reference
+/// keeps both (`Authorization: <argument>` and `authorization: <middleware>`), and a Node
+/// upstream reads the first `authorization`, the argument's. An argument with exactly the
+/// middleware's name was already replaced in place, as in the reference.
 pub fn build_upstream_call(
     method: RouteMethod,
     path: &str,
@@ -108,13 +114,19 @@ pub fn build_upstream_call(
     }
 
     let excluded: Vec<String> = exclude_headers.iter().map(|h| h.to_lowercase()).collect();
+    let middleware_headers = middleware.kebab_headers();
+    let owned_elsewhere = |name: &str| {
+        middleware_headers
+            .iter()
+            .any(|(owned, _)| owned != name && owned.eq_ignore_ascii_case(name))
+    };
     let mut custom: JsMap<String> = JsMap::new();
     for (name, value) in headers.into_entries() {
-        if !excluded.contains(&name.to_lowercase()) {
+        if !excluded.contains(&name.to_lowercase()) && !owned_elsewhere(&name) {
             custom.insert(name, value);
         }
     }
-    for (name, value) in middleware.kebab_headers() {
+    for (name, value) in middleware_headers {
         custom.insert(name, value);
     }
     let mut request_headers = vec![("content-type".to_string(), "application/json".to_string())];

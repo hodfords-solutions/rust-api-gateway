@@ -278,6 +278,17 @@ fn golden_calls_match_the_reference() {
                 }
             }
         }
+        // Deviation D16: an argument header whose name differs only in letter case from a
+        // middleware header is not sent, where the reference sends both.
+        let middleware = proxy_request(&case["middleware"]).kebab_headers();
+        if let Some(headers) = expected["headers"].as_array_mut() {
+            headers.retain(|header| {
+                let name = header[0].as_str().unwrap_or_default();
+                !middleware
+                    .iter()
+                    .any(|(owned, _)| owned != name && owned.eq_ignore_ascii_case(name))
+            });
+        }
         if observed != expected {
             failures.push(format!(
                 "{name}:\n  rust:      {observed}\n  expected:  {expected}\n  reference: {}",

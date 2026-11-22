@@ -247,6 +247,32 @@ CFG-20, with Node's defaults) and are covered by Conformance Tests
   response. Test: `security_limits::sec_03_idle_keep_alive_connections_are_closed` (a 1 s
   timeout, a request reusing the connection before it, then the close).
 
+**SEC-09 (was high): an MCP tool call could supply an internal header.** Fixed in 0.1.2 as a
+parity gap (MCP-18). To write undici's exact request head, the MCP executor carried the head
+it built in an internal request header, which the connection then wrote in place of hyper's.
+The `header_<x>` arguments of a tool call became upstream headers too, and nothing kept an
+argument from using that internal name, so a tool caller could replace the head the upstream
+received: method, path and headers, including identity headers the application's middleware
+sets, and a framing that left the pooled connection out of step with the body. The Reference
+Gateway never had such a header. Now the head travels apart from the request's headers (a
+request extension the connection takes it from), no header name has any meaning to the
+gateway, and a head the connection was not given is never written. Headers that frame the
+request (`host`, `content-length`, `connection`, `transfer-encoding`, `keep-alive`, `upgrade`,
+`expect`) now follow undici's rules, as in the reference, so no argument can make the head's
+framing differ from the body sent. The proxy and WebSocket paths carry nothing in headers
+that the gateway reads back. Tests: `security_mcp::tool_arguments_cannot_replace_the_upstream_head`,
+`security_mcp::mcp_18_framing_header_arguments_follow_undici`, and the Conformance Tests
+`mcp::mcp_18_no_argument_replaces_the_head` and `mcp::mcp_18_framing_header_arguments`.
+
+**SEC-10 (was medium): an MCP tool argument could add to a middleware-owned header by
+changing its letter case.** Fixed as Deviation D16 (2026-11-22; MCP-18). An argument such as
+`header_Authorization` was sent next to the middleware's `authorization`, before it; a Node
+upstream keeps the first `authorization` and joins other repeated headers, so the caller's
+value won or was merged in. The reference behaves the same
+(`deviations::d16_mcp_argument_and_middleware_headers_differing_in_case_are_both_sent`). Now
+such an argument is not sent and the middleware's value is the only line of that name. Test:
+`security_mcp::d16_middleware_headers_win_over_arguments_in_any_case`.
+
 ## Observations (not findings)
 
 - `Host` is forwarded unchanged (FWD-09). It never selects the upstream, but an upstream that

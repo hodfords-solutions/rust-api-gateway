@@ -1,7 +1,7 @@
 //! MCP server: MCP-01 to MCP-04, MCP-06, MCP-07, MCP-10, MCP-12 to MCP-19.
 //!
-//! The parts of MCP-12 and MCP-17 under Deviations D7 and D8 are left out here; the
-//! reference behaviour behind them is checked in `deviations.rs`.
+//! The parts of MCP-12, MCP-17 and MCP-18 under Deviations D7, D8 and D16 are left out here;
+//! the reference behaviour behind them is checked in `deviations.rs`.
 
 use anyhow::Result;
 use conformance::client::Request;
@@ -1223,7 +1223,7 @@ async fn mcp_18_upstream_headers() {
                 "header_x-false": false,
                 "header_x-null": null,
                 "header_7": "seven",
-                "header_X-Up": "Up"
+                "header_x-up": "Up"
             });
             let mixed = upstream_of(
                 &gw,
@@ -1247,9 +1247,8 @@ async fn mcp_18_upstream_headers() {
                     "content-type: text/plain",
                     "x-false: false",
                     "x-null: null",
-                    "x-up: Up",
-                    "x-mw: 1",
-                    "x-up: mw"
+                    "x-up: mw",
+                    "x-mw: 1"
                 ])
             );
             obs.record("precedence", mixed);
@@ -1263,6 +1262,130 @@ async fn mcp_18_upstream_headers() {
             )
             .await?;
             obs.record("POST with body and middleware user", posted);
+            Ok(obs)
+        },
+    )
+    .await;
+}
+
+/// The lines of an upstream view's headers named `name` (lower case).
+fn lines_named(view: &Value, name: &str) -> Vec<String> {
+    view["headers"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(Value::as_str)
+        .filter(|line| line.split_once(':').is_some_and(|(n, _)| n == name))
+        .map(str::to_string)
+        .collect()
+}
+
+/// No `header_<x>` argument is read as anything but a header: one named like the header the
+/// Rust gateway once carried its head in (any letter case) is sent as an ordinary line, and
+/// the request and the next one on the connection are the gateway's own.
+#[tokio::test]
+async fn mcp_18_no_argument_replaces_the_head() {
+    run(
+        "mcp_18_no_argument_replaces_the_head",
+        &["MCP-18"],
+        |target| async move {
+            let mut obs = Observations::new();
+            let (mock, gw) = users_gateway(&target, |c| c).await?;
+            let forged: String =
+                "DELETE /admin/ HTTP/1.1\r\nhost: elsewhere\r\ncontent-length: 40\r\n\r\n"
+                    .bytes()
+                    .map(|b| format!("{b:02x}"))
+                    .collect();
+            for name in ["x-rust-gateway-raw-head", "X-Rust-Gateway-Raw-Head"] {
+                for id in ["1", "2"] {
+                    let view = upstream_of(
+                        &gw,
+                        &mock,
+                        "svc_UsersController_getUser",
+                        json!({ "path_id": id, format!("header_{name}"): forged }),
+                        &[],
+                    )
+                    .await?;
+                    assert_eq!(view["method"], "GET", "{view}");
+                    assert_eq!(view["target"], format!("/v1/users/{id}/"), "{view}");
+                    assert_eq!(
+                        view["headers"],
+                        json!([
+                            "host: 127.0.0.1:<port>",
+                            "connection: keep-alive",
+                            "content-type: application/json",
+                            format!("x-rust-gateway-raw-head: {forged}")
+                        ])
+                    );
+                    obs.record(format!("{name}, call {id}"), view);
+                }
+            }
+            Ok(obs)
+        },
+    )
+    .await;
+}
+
+#[tokio::test]
+async fn mcp_18_framing_header_arguments() {
+    run(
+        "mcp_18_framing_header_arguments",
+        &["MCP-18"],
+        |target| async move {
+            let mut obs = Observations::new();
+            let (mock, gw) = users_gateway(&target, |c| c).await?;
+            let get = "svc_UsersController_getUser";
+            let create = "svc_UsersController_createUser";
+
+            // What undici refuses: an error result, and nothing sent.
+            let refused = [
+                (create, json!({ "body": { "a": 1 }, "header_Content-Length": "3" }), "Request body length does not match content-length header"),
+                (create, json!({ "body": { "a": 1 }, "header_content-length": "+7" }), "invalid content-length header"),
+                (create, json!({ "body": { "a": 1 }, "header_content-length": "7", "header_Content-Length": "7" }), "duplicate content-length header"),
+                (get, json!({ "path_id": "1", "header_Host": "a", "header_host": "b" }), "duplicate host header"),
+                (get, json!({ "path_id": "1", "header_Transfer-Encoding": "chunked" }), "invalid transfer-encoding header"),
+                (get, json!({ "path_id": "1", "header_keep-alive": "timeout=5" }), "invalid keep-alive header"),
+                (get, json!({ "path_id": "1", "header_upgrade": "websocket" }), "invalid upgrade header"),
+                (get, json!({ "path_id": "1", "header_connection": "upgrade, x y" }), "invalid connection header"),
+                (get, json!({ "path_id": "1", "header_Expect": "100-continue" }), "expect header not supported"),
+            ];
+            for (tool, arguments, message) in refused {
+                let view = upstream_of(&gw, &mock, tool, arguments.clone(), &[]).await?;
+                assert_eq!(
+                    view["result"]["content"][0]["text"],
+                    format!("Error executing {tool}: {message}"),
+                    "{arguments}: {view}"
+                );
+                assert_eq!(view["result"]["isError"], true, "{arguments}");
+                obs.record(format!("refused {arguments}"), view);
+            }
+
+            // What undici accepts: the host, connection and content-length lines sent.
+            let accepted = [
+                (get, json!({ "path_id": "1", "header_Host": "other.example" }), ["host: other.example", "connection: keep-alive", ""]),
+                (get, json!({ "path_id": "2", "header_content-length": "9" }), ["host: 127.0.0.1:<port>", "connection: keep-alive", ""]),
+                (create, json!({ "body": { "a": 1 }, "header_content-length": "07" }), ["host: 127.0.0.1:<port>", "connection: keep-alive", "content-length: 7"]),
+                (create, json!({ "header_Content-Length": "5" }), ["host: 127.0.0.1:<port>", "connection: keep-alive", "content-length: 0"]),
+                (get, json!({ "path_id": "3", "header_Connection": "Keep-Alive" }), ["host: 127.0.0.1:<port>", "connection: keep-alive", ""]),
+                (get, json!({ "path_id": "4", "header_connection": "close" }), ["host: 127.0.0.1:<port>", "connection: close", ""]),
+            ];
+            for (tool, arguments, [host, connection, length]) in accepted {
+                let view = upstream_of(&gw, &mock, tool, arguments.clone(), &[]).await?;
+                let framing = [
+                    lines_named(&view, "host"),
+                    lines_named(&view, "connection"),
+                    lines_named(&view, "content-length"),
+                ];
+                let expected = [host, connection, length].map(|line| {
+                    if line.is_empty() {
+                        Vec::new()
+                    } else {
+                        vec![line.to_string()]
+                    }
+                });
+                assert_eq!(framing, expected, "{arguments}: {view}");
+                obs.record(format!("accepted {arguments}"), view);
+            }
             Ok(obs)
         },
     )

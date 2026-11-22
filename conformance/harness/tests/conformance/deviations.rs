@@ -280,6 +280,57 @@ async fn d6_documents_page_embeds_json_unescaped() {
     .await;
 }
 
+/// D16 (MCP-18): a `header_<x>` argument whose name differs only in letter case from a
+/// middleware header is sent too, before the middleware's line.
+#[tokio::test]
+async fn d16_mcp_argument_and_middleware_headers_differing_in_case_are_both_sent() {
+    run_reference_only(
+        "d16_mcp_argument_and_middleware_headers_differing_in_case_are_both_sent",
+        &["MCP-18"],
+        |target| async move {
+            let mut obs = Observations::new();
+            let (mock, gw) = users_gateway(&target, |c| c).await?;
+            mock.clear_requests();
+            mcp::call_tool_with(
+                gw.addr(),
+                "svc_UsersController_getUser",
+                json!({
+                    "path_id": "7",
+                    "header_Authorization": "Bearer argument",
+                    "header_X-Workspace-Id": "w-argument"
+                }),
+                &[(
+                    "x-test-add-headers",
+                    r#"{"authorization":"Bearer middleware","xWorkspaceId":"w-middleware"}"#,
+                )],
+            )
+            .await?;
+            let lines = crate::pipeline::header_lines(&mock.last_request().expect("forwarded"));
+            let named = |name: &str| {
+                lines
+                    .iter()
+                    .filter(|line| line.split_once(':').is_some_and(|(n, _)| n == name))
+                    .cloned()
+                    .collect::<Vec<_>>()
+            };
+            assert_eq!(
+                named("authorization"),
+                [
+                    "authorization: Bearer argument",
+                    "authorization: Bearer middleware"
+                ]
+            );
+            assert_eq!(
+                named("x-workspace-id"),
+                ["x-workspace-id: w-argument", "x-workspace-id: w-middleware"]
+            );
+            obs.record("header lines", lines);
+            Ok(obs)
+        },
+    )
+    .await;
+}
+
 /// D7 (MCP-17) and D8 (MCP-12): MCP path arguments are substituted raw, and a schema
 /// referenced twice resolves only the first time.
 #[tokio::test]
