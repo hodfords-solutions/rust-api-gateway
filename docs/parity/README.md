@@ -36,7 +36,7 @@ A row marked **confirm** states behaviour read from code or inferred from a depe
 
 ## Deviations
 
-Approved on 2026-11-18 (D10 and the wider D4 after the first Conformance Tests ran; D11, D13 and D14 once the areas they concern were implemented), and D15 on 2026-11-19 (security finding SEC-01, [docs/security/attack-tests.md](../security/attack-tests.md)). There is no D12: the exact bytes it would have excused (WS-15) were reproduced. Each is implemented as described, tested Rust-only, and the reference behaviour is recorded in the row.
+Approved on 2026-11-18 (D10 and the wider D4 after the first Conformance Tests ran; D11, D13 and D14 once the areas they concern were implemented), D15 on 2026-11-19 (security finding SEC-01, [docs/security/attack-tests.md](../security/attack-tests.md)), and D16 on 2026-11-22 (security finding SEC-10). There is no D12: the exact bytes it would have excused (WS-15) were reproduced. Each is implemented as described, tested Rust-only, and the reference behaviour is recorded in the row.
 
 | # | Deviation | Reference behaviour | Rows |
 |---|---|---|---|
@@ -54,6 +54,7 @@ Approved on 2026-11-18 (D10 and the wider D4 after the first Conformance Tests r
 | D13 | Edge cases of the MCP transport follow the Rust SDK `rmcp`: JSON-RPC batches, malformed or unacceptable requests, a response sent by the client, SSE framing, and some error codes. `initialize`, `tools/list`, `tools/call` and authentication match the reference | The TypeScript SDK's answers: batches accepted, JSON-RPC error bodies with status 400, 406 or 415, an `event: message` line in SSE | MCP-02 |
 | D14 | Tracing sends one `traceparent` to the upstream, a WebSocket handshake span continues the client's trace and ends at the handshake, and only what the gateway instruments has spans | Auto-instrumentation: a second `traceparent` is appended when the client sent one, a WebSocket span starts a new trace and lasts until the tunnel closes, and Express, NestJS, DNS and Redis have spans | OTEL-02 to OTEL-04 |
 | D15 | An upgrade request whose URL is a Route (and that is neither a Static nor a Bypass Request) passes that Route's checks before the WebSocket middleware: the Global IP Bucket, the proxy middleware, the Identity, the Custom and Route Buckets, as the same request without upgrade headers would. When the upstream does not upgrade, the client gets the status line only, not the body | An upgrade skips Route lookup, proxy middleware and every Bucket, so adding `Connection: Upgrade` and `Upgrade: websocket` to a `GET` bypasses the application's authentication and rate limits; the body of a non-101 upstream answer is relayed to the client | WS-04, WS-15, RL-24 |
+| D16 | A `header_<x>` argument of an MCP tool call whose name differs only in letter case from a header the proxy middleware sets is not sent: the middleware's value is the only line of that name | Both lines are sent, the argument's first (`Authorization: <argument>`, then `authorization: <middleware>`), and a Node upstream keeps the first `authorization` and joins other headers, so a tool caller can override or add to an identity header the middleware owns | MCP-18 |
 
 D9 is open-ended: each uncommon query shape found to differ is added to FWD-04 as it is discovered.
 

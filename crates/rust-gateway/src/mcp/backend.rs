@@ -20,7 +20,7 @@ use super::server::peer_addr;
 use crate::error::MiddlewareBody;
 use crate::gateway::Handlers;
 use crate::handler::{GatewayRequest, IdentityContext, MiddlewareError};
-use crate::proxy::pool::{RAW_HEAD_HEADER, UpstreamPool};
+use crate::proxy::pool::{RawHead, UpstreamPool};
 use crate::rate_limit::{RateLimitError, RateLimiter, RouteKey};
 use crate::request::{ProxyRequest, normalize_request_url};
 use crate::route::RouteMethod;
@@ -224,25 +224,31 @@ fn error_message(error: &MiddlewareError) -> String {
 /// kept, then `content-length` (`0` for `POST`, `PUT` and `PATCH` without a body), and the
 /// raw target, which may contain `{x}`.
 ///
-/// hyper writes a header map grouped by name and in lower case, so the exact head travels
-/// in the [`RAW_HEAD_HEADER`] header, which the MCP pools' connections write instead of
-/// hyper's head; the header map hyper sees has the same framing.
+/// The call's headers that undici handles itself follow its rules, so that the head always
+/// frames the body sent and a pooled connection stays in step:
+///
+/// - `host` is written in place of the Upstream Service's authority; a second one refuses the
+///   call (`duplicate host header`);
+/// - `content-length` is never written as given: it must be digits (`invalid content-length
+///   header`), given once (`duplicate content-length header`), and equal to the body's length
+///   when there is a body (`Request body length does not match content-length header`);
+/// - `connection` must be a list of tokens (`invalid connection header`) and is not written;
+///   one of `close` writes `connection: close` and the connection is not reused;
+/// - `transfer-encoding`, `keep-alive` and `upgrade` refuse the call (`invalid <name>
+///   header`), and so does `expect` (`expect header not supported`).
+///
+/// Names are compared case-insensitively, and each header is checked in order, so the first
+/// one undici would refuse gives the message. A refused call sends nothing.
+///
+/// hyper writes a header map grouped by name and in lower case, so the exact head travels as
+/// the request's [`RawHead`] extension, which the MCP pools' connections write instead of
+/// hyper's head; the request hyper sees carries only the framing.
 fn upstream_request(
     authority: &str,
     call: &UpstreamCall,
 ) -> Result<Request<crate::proxy::pool::RequestBody>, UpstreamError> {
     let method = call.method_name();
     let body = call.body.clone().map(Bytes::from);
-    let length = match (&body, call.method) {
-        (Some(body), _) => Some(body.len()),
-        (None, RouteMethod::Post | RouteMethod::Put | RouteMethod::Patch) => Some(0),
-        (None, _) => None,
-    };
-    let connection = if call.method == RouteMethod::Head {
-        "close"
-    } else {
-        "keep-alive"
-    };
     let target = &call.path_and_query;
     if target.is_empty()
         || !target.starts_with('/')
@@ -253,27 +259,76 @@ fn upstream_request(
         });
     }
 
-    let mut head =
-        format!("{method} {target} HTTP/1.1\r\nhost: {authority}\r\nconnection: {connection}\r\n");
-    let mut headers = HeaderMap::with_capacity(call.headers.len() + 4);
-    headers.append(header::HOST, header_value("host", authority)?);
-    headers.append(header::CONNECTION, HeaderValue::from_static(connection));
+    let mut host: Option<&str> = None;
+    let mut declared_length: Option<&str> = None;
+    let mut close = call.method == RouteMethod::Head;
+    let mut lines = String::new();
     for (name, value) in &call.headers {
-        let header_name = HeaderName::from_bytes(name.as_bytes()).map_err(|_| UpstreamError {
+        HeaderName::from_bytes(name.as_bytes()).map_err(|_| UpstreamError {
             message: format!("invalid header key {name:?}"),
         })?;
-        headers.append(header_name, header_value(name, value)?);
-        let _ = write!(head, "{name}: {value}\r\n");
+        header_value(name, value)?;
+        match name.to_ascii_lowercase().as_str() {
+            "host" => {
+                if host.replace(value).is_some() {
+                    return Err(refused("duplicate host header"));
+                }
+            }
+            "content-length" => {
+                if declared_length.is_some() {
+                    return Err(refused("duplicate content-length header"));
+                }
+                if value.is_empty() || !value.bytes().all(|b| b.is_ascii_digit()) {
+                    return Err(refused("invalid content-length header"));
+                }
+                declared_length = Some(value);
+            }
+            lower @ ("transfer-encoding" | "keep-alive" | "upgrade") => {
+                return Err(refused(&format!("invalid {lower} header")));
+            }
+            "connection" => {
+                for token in value.to_ascii_lowercase().split(',') {
+                    let token = token.trim();
+                    if token.is_empty() || !token.bytes().all(is_token_byte) {
+                        return Err(refused("invalid connection header"));
+                    }
+                    close |= token == "close";
+                }
+            }
+            "expect" => return Err(refused("expect header not supported")),
+            _ => {
+                let _ = write!(lines, "{name}: {value}\r\n");
+            }
+        }
     }
+    let body_length = body.as_ref().map_or(0, Bytes::len);
+    if let Some(declared) = declared_length
+        && body_length > 0
+        && declared.trim_start_matches('0') != body_length.to_string()
+    {
+        return Err(refused(
+            "Request body length does not match content-length header",
+        ));
+    }
+    let length = match (&body, call.method) {
+        (Some(_), _) => Some(body_length),
+        (None, RouteMethod::Post | RouteMethod::Put | RouteMethod::Patch) => Some(0),
+        (None, _) => None,
+    };
+    let connection = if close { "close" } else { "keep-alive" };
+
+    let host = host.unwrap_or(authority);
+    let mut head =
+        format!("{method} {target} HTTP/1.1\r\nhost: {host}\r\nconnection: {connection}\r\n");
+    head.push_str(&lines);
+    let mut headers = HeaderMap::with_capacity(3);
+    headers.append(header::HOST, header_value("host", authority)?);
+    headers.append(header::CONNECTION, HeaderValue::from_static(connection));
     if let Some(length) = length {
         headers.append(header::CONTENT_LENGTH, HeaderValue::from(length));
         let _ = write!(head, "content-length: {length}\r\n");
     }
     head.push_str("\r\n");
-    headers.append(
-        HeaderName::from_static(RAW_HEAD_HEADER),
-        header_value(RAW_HEAD_HEADER, &hex(head.as_bytes()))?,
-    );
 
     let method = Method::from_bytes(method.as_bytes()).map_err(|_| UpstreamError {
         message: format!("invalid method {method}"),
@@ -285,7 +340,22 @@ fn upstream_request(
     // The target hyper sees is a placeholder: the raw head carries the real one.
     *request.uri_mut() = http::Uri::from_static("/");
     *request.headers_mut() = headers;
+    request.extensions_mut().insert(RawHead::new(
+        head,
+        u64::try_from(body_length).unwrap_or(u64::MAX),
+    ));
     Ok(request)
+}
+
+fn refused(message: &str) -> UpstreamError {
+    UpstreamError {
+        message: message.to_string(),
+    }
+}
+
+/// An RFC 9110 `tchar`.
+fn is_token_byte(byte: u8) -> bool {
+    byte.is_ascii_alphanumeric() || b"!#$%&'*+-.^_`|~".contains(&byte)
 }
 
 /// The client span of a tool call (OTEL-03) when tracing is started, and the call with the
@@ -329,20 +399,9 @@ fn header_value(name: &str, value: &str) -> Result<HeaderValue, UpstreamError> {
     })
 }
 
-fn hex(bytes: &[u8]) -> String {
-    const DIGITS: &[u8; 16] = b"0123456789abcdef";
-    let mut out = String::with_capacity(bytes.len() * 2);
-    for byte in bytes {
-        out.push(char::from(DIGITS[usize::from(byte >> 4)]));
-        out.push(char::from(DIGITS[usize::from(byte & 15)]));
-    }
-    out
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::proxy::pool::rewrite_head;
 
     fn call(method: RouteMethod, headers: &[(&str, &str)], body: Option<&str>) -> UpstreamCall {
         UpstreamCall {
@@ -357,11 +416,8 @@ mod tests {
     }
 
     fn written_head(request: &Request<crate::proxy::pool::RequestBody>) -> String {
-        let hex = request.headers()[RAW_HEAD_HEADER].to_str().unwrap();
-        let mut hyper_head = format!("GET / HTTP/1.1\r\n{RAW_HEAD_HEADER}: {hex}\r\n\r\n");
-        let (bytes, _) = rewrite_head(hyper_head.as_bytes());
-        hyper_head = String::from_utf8(bytes).unwrap();
-        hyper_head
+        let head = request.extensions().get::<RawHead>().expect("a raw head");
+        String::from_utf8(head.head().to_vec()).unwrap()
     }
 
     // MCP-18: undici's head, with names in their case, duplicates apart, and the framing.
